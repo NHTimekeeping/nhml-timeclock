@@ -169,7 +169,7 @@ textarea { resize: vertical; min-height: 70px; }
 }
 .stat-card:hover { background: rgba(255,255,255,0.11); border-color: rgba(145,98,155,0.4); }
 .stat-lbl { font-size: 0.68rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-dim); margin-bottom: 6px; font-weight: 600; }
-.stat-val { font-family: 'Atkinson Hyperlegible', sans-serif; font-size: 2.2rem; font-weight: 700; color: #fff; line-height: 1; }
+.stat-val { font-family: 'Lexend', sans-serif; font-size: 2.2rem; font-weight: 700; color: #fff; line-height: 1; }
 .stat-val.green { color: #4ade80; }
 .stat-val.red   { color: #ff7070; }
 .stat-val.blue  { color: #60b8e0; }
@@ -803,7 +803,7 @@ async function renderStats() {
     if (ep.some(p=>p.event==='Punch In'&&String(p.isLate)==='true')) lateToday++;
   });
   document.getElementById('statsRow').innerHTML = `
-    <div class="stat-card"><div class="stat-lbl">Active employees</div><div class="stat-val">${emps.filter(e=>e.status==='active').length}</div></div>
+    <div class="stat-card"><div class="stat-lbl">Active employees</div><div class="stat-val">${emps.filter(e=>String(e.status).toLowerCase()==='active').length}</div></div>
     <div class="stat-card"><div class="stat-lbl">Clocked in now</div><div class="stat-val green">${clockedIn}</div></div>
     <div class="stat-card"><div class="stat-lbl">Late today</div><div class="stat-val red">${lateToday}</div></div>
     <div class="stat-card"><div class="stat-lbl">Punches today</div><div class="stat-val blue">${punchCountToday}</div></div>`;
@@ -824,7 +824,7 @@ async function renderEmpTable() {
     const sPill = onMeal ? `<span class="pill pill-meal">Meal</span>` :
       lastIn&&!lastOut ? `<span class="pill pill-in">In</span>` : `<span class="pill pill-out">Out</span>`;
     const lFlag = ep.some(p=>p.event==='Punch In'&&String(p.isLate)==='true') ? `<span class="pill pill-late">LATE</span>` : '';
-    const tPill = (e.empType||'part-time')==='full-time'
+    const tPill = String(e.empType||'').toLowerCase()==='full-time'
       ? `<span class="pill" style="background:#e8eef5;color:#1e3a5f;">FT</span>`
       : `<span class="pill" style="background:#f0eeea;color:#888880;">PT</span>`;
     return `<tr>
@@ -832,7 +832,7 @@ async function renderEmpTable() {
       <td><strong>${e.last}</strong>, ${e.first}</td>
       <td>${e.dept}</td><td>${tPill}</td>
       <td style="font-family:'Lexend',sans-serif;letter-spacing:0.15em;font-weight:600;">${e.pin}</td>
-      <td><span class="pill ${e.status==='active'?'pill-active':'pill-inactive'}">${e.status}</span></td>
+      <td><span class="pill ${String(e.status).toLowerCase()==='active'?'pill-active':'pill-inactive'}">${e.status}</span></td>
       <td>${sPill} ${lFlag}</td>
       <td><div style="display:flex;gap:6px;">
         <button class="btn btn-ghost btn-sm" onclick="openEditEmployee('${e.id}')">Edit</button>
@@ -1108,7 +1108,8 @@ async function saveAccrualEdits(empId) {
 // ════════════════════════════════════════
 async function renderTimeOffAdmin() {
   const requests = await loadAllTimeOff();
-  const emps     = await loadEmployees();
+  const allEmpTO = await loadEmployees();
+  const emps = allEmpTO.filter(e=>e.id&&e.last);
   const filterStatus = document.getElementById('toFilterStatus').value;
   const filterEmp    = document.getElementById('toFilterEmp').value;
   const filtered = requests.filter(r=>{
@@ -1160,7 +1161,7 @@ async function postPaidNonWorked() {
   if(!date){msgEl.textContent='Please select a date.';msgEl.style.color='#BD3531';msgEl.style.display='block';return;}
   if(!hours||hours<=0){msgEl.textContent='Please enter hours.';msgEl.style.color='#BD3531';msgEl.style.display='block';return;}
   const emps=await loadEmployees();
-  const targets=empSel==='ALL'?emps.map(e=>e.id):[empSel];
+  const targets=empSel==='ALL'?emps.filter(e=>e.id&&e.last).map(e=>e.id):[empSel];
   showLoading(`Posting to ${targets.length} employee(s)…`);
   for(const id of targets){
     await postPNW({empId:id,type,date,hours,note,postedAt:new Date().toISOString()}).catch(()=>{});
@@ -1203,7 +1204,8 @@ function updateAdjHours() {
   if(noteEl) noteEl.textContent=note;
 }
 async function populateAdjSelectors() {
-  const emps=await loadEmployees();
+  const allAdjEmps=await loadEmployees();
+  const emps=allAdjEmps.filter(e=>e.id&&e.last);
   const opts=emps.map(e=>`<option value="${e.id}">${e.last}, ${e.first} (${(e.empType||'PT').substring(0,2).toUpperCase()})</option>`).join('');
   const adjSel=document.getElementById('adjEmpSel');
   const adjFilter=document.getElementById('adjFilterEmp');
@@ -1279,7 +1281,8 @@ function getPeriodDates(){
 }
 async function exportBiWeeklyCSV(){
   const dates=getPeriodDates();if(!dates)return;
-  const emps=await loadEmployees();
+  const allEmpEx=await loadEmployees();
+  const emps=allEmpEx.filter(e=>String(e.status).toLowerCase()==='active'&&e.id&&e.last);
   const allPunches=await loadAllPunchesAsMap();
   const rows=[['Employee ID','Last','First','Dept','Type','Date','Day','Punch In','Punch Out','Meal Out','Meal In','Reg Hours','OT Hours','Holiday Pay','Library Closure','Late?','Note']];
   emps.filter(e=>e.status==='active').forEach(emp=>{
@@ -1306,7 +1309,8 @@ async function exportBiWeeklyCSV(){
   toast('Bi-weekly timesheet exported');
 }
 async function exportPunchDetailCSV(){
-  const emps=await loadEmployees();
+  const allEmpPD=await loadEmployees();
+  const emps=allEmpPD.filter(e=>e.id&&e.last);
   const punches=await loadAllPunchesAsMap();
   const rows=[['Punch ID','Employee ID','Last','First','Event','Date','Time','Late','Admin Edited','Note']];
   emps.forEach(emp=>(punches[emp.id]||[]).forEach(p=>rows.push([p.punchId||'',emp.id,emp.last,emp.first,p.event,p.date||'',p.time||'',p.isLate?'YES':'',p.adminEdited?'YES':'',p.note||''])));
@@ -1314,7 +1318,8 @@ async function exportPunchDetailCSV(){
   logExportToSheet('Punch Detail Log',new Date().toLocaleDateString(),rows.length-1); toast('Punch log exported');
 }
 async function exportAccrualsCSV(){
-  const emps=await loadEmployees();
+  const allEmpAc=await loadEmployees();
+  const emps=allEmpAc.filter(e=>e.id&&e.last);
   const rows=[['Employee ID','Last','First','Vac Bal','Vac Used','Sick Bal(h)','Sick Used(h)','Personal Bal','Personal Used','Float Bal','Float Used','LWOP Used','Jury Hrs','Jury Events','Bereavement Hrs','Bereavement Events']];
   for(const emp of emps){
     const a=await loadAccruals(emp.id);
@@ -1324,7 +1329,8 @@ async function exportAccrualsCSV(){
   logExportToSheet('Accrual Balances',new Date().toLocaleDateString(),rows.length-1); toast('Accruals exported');
 }
 async function exportRosterCSV(){
-  const emps=await loadEmployees();
+  const allEmpRo=await loadEmployees();
+  const emps=allEmpRo.filter(e=>e.id&&e.last);
   const rows=[['Employee ID','Last','First','Department','Emp Type','Status','Hire Date']];
   emps.forEach(e=>rows.push([e.id,e.last,e.first,e.dept,e.empType||'',e.status,e.hireDate||'']));
   downloadFile(toCSV(rows),`nhml-roster-${new Date().toISOString().slice(0,10)}.csv`,'text/csv');
