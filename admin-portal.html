@@ -328,6 +328,18 @@ textarea { resize: vertical; min-height: 70px; }
     </div>
   </div>
 
+  <!-- Pending time-off alert -->
+  <div id="pendingAlert" style="display:none;background:#FEF0B8;border:1.5px solid #c8980a;border-radius:10px;padding:0.9rem 1.3rem;margin-bottom:1.4rem;display:none;align-items:center;justify-content:space-between;gap:1rem;">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <span style="font-size:1.3rem;">🗓</span>
+      <div>
+        <div style="font-weight:700;color:#5a3a00;font-size:0.95rem;" id="pendingAlertText">Time off requests awaiting approval</div>
+        <div style="font-size:0.78rem;color:#7a5200;margin-top:2px;">Review and approve or deny in the Time Off tab</div>
+      </div>
+    </div>
+    <button onclick="switchTab('timeoff');document.getElementById('pendingAlert').style.display='none';" style="background:#c8980a;color:#fff;border:none;border-radius:7px;padding:0.55rem 1.1rem;font-family:Lexend,sans-serif;font-size:0.85rem;font-weight:600;cursor:pointer;white-space:nowrap;">Review now →</button>
+  </div>
+
   <!-- Stats -->
   <div class="stats-row" id="statsRow"></div>
 
@@ -1143,9 +1155,21 @@ async function decideTimeOff(requestId, decision) {
   hideLoading(); renderTimeOffAdmin(); toast(`Request ${decision}`); updatePendingBadge();
 }
 async function updatePendingBadge() {
-  const pending=(await loadAllTimeOff().catch(()=>[])).filter(r=>r.status==='pending').length;
-  const badge=document.getElementById('pendingBadge');
-  if(badge){badge.textContent=pending;badge.style.display=pending>0?'inline':'none';}
+  const all = await loadAllTimeOff().catch(()=>[]);
+  const pending = all.filter(r=>r.status==='pending').length;
+  const badge = document.getElementById('pendingBadge');
+  if (badge) { badge.textContent=pending; badge.style.display=pending>0?'inline':'none'; }
+  // Alert banner
+  const alert = document.getElementById('pendingAlert');
+  if (alert) {
+    if (pending > 0) {
+      const txt = document.getElementById('pendingAlertText');
+      if (txt) txt.textContent = `${pending} time off request${pending>1?'s':''} awaiting approval`;
+      alert.style.display = 'flex';
+    } else {
+      alert.style.display = 'none';
+    }
+  }
 }
 
 // ════════════════════════════════════════
