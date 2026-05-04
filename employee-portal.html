@@ -884,7 +884,25 @@ async function api(action, params={}, body=null) {
   } catch(err) { console.error('API:', action, err); throw err; }
 }
 
-function showLoading(msg='Loading…') {
+async function loadTodayPunches(empId) {
+  const today = new Date().toISOString().slice(0,10);
+  const r = await api('getPunches', {empId, date: today});
+  return r.data || [];
+}
+async function loadTimeOff(empId) {
+  const r = await api('getTimeOff', {empId});
+  return r.data || [];
+}
+async function loadPaidNonWorked(empId) {
+  const r = await api('getPaidNonWorked', {empId});
+  return r.data || [];
+}
+async function submitTimeOffReq(request) {
+  return api('submitTimeOff', {}, {request});
+}
+async function savePunch(punch) {
+  return api('addPunch', {}, {punch});
+}
   let el = document.getElementById('_ld');
   if (!el) {
     el = document.createElement('div'); el.id='_ld';
