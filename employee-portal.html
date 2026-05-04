@@ -1081,8 +1081,8 @@ async function doLogin() {
     const punches = await loadTodayPunches(emp.id);
     restoreStateFromPunches(emp.id, punches);
     await api('checkSickAccrual',{},{empId:emp.id,empType:emp.empType||'part-time'}).then(r=>{
-      if(r.accrued) setTimeout(()=>toast((emp.empType==='full-time'?'7':'25')+' sick hours added — auto accrual'),800);
-    }).catch(()=>{});
+      if(r.accrued) setTimeout(()=>toast((emp.empType==='full-time'||String(emp.empType).toLowerCase()==='full-time'?'7':'25')+' sick hours added — auto accrual'),800);
+    }).catch(e=>console.warn('Sick accrual check skipped:', e.message));
     hideLoading();
     document.getElementById('portalName').textContent = emp.first+' '+emp.last;
     document.getElementById('portalId').textContent   = emp.id+' · '+emp.dept;
@@ -1576,71 +1576,140 @@ function renderTodayLog() {
 }
 
 // ══════════════════════════════════════════
-//  HISTORY
+//  HISTORY (loaded from Google Sheet)
 // ══════════════════════════════════════════
+const HISTORY = {}; // cache: empId → array of week arrays
+
 function shiftWeek(dir) {
   const st = gs();
-  const hist = HISTORY[currentEmpId];
+  const hist = HISTORY[currentEmpId] || [];
   const newOffset = st.weekOffset + dir;
   if (newOffset < 0) return;
-  if (newOffset >= hist.length) return;
+  if (newOffset >= hist.length && dir > 0) return;
   st.weekOffset = newOffset;
   renderWeekHistory();
 }
 
-function renderWeekHistory() {
+async function renderWeekHistory() {
   const st = gs();
-  const hist = HISTORY[currentEmpId];
-  if (!hist || !hist.length) {
-    document.getElementById('weekSummary').innerHTML = '';
-    document.getElementById('historyLog').innerHTML = '<div class="empty-state">No history available.</div>';
+  const logEl    = document.getElementById('historyLog');
+  const summaryEl= document.getElementById('weekSummary');
+  if (!logEl) return;
+
+  // Load punches from Sheet if not cached
+  if (!HISTORY[currentEmpId]) {
+    logEl.innerHTML = '<div class="empty-state">Loading history…</div>';
+    try {
+      const r = await api('getAllPunches', {empId: currentEmpId});
+      const punches = (r.data || []).filter(p => !p.isAdjustment && p.date && p.time);
+
+      // Group by week (Mon–Sat)
+      const byDate = {};
+      punches.forEach(p => {
+        if (!byDate[p.date]) byDate[p.date] = [];
+        byDate[p.date].push(p);
+      });
+
+      // Build week buckets going back from today
+      const weeks = [];
+      const today = new Date();
+      for (let w = 1; w <= 8; w++) {
+        const weekDays = [];
+        for (let d = 0; d < 6; d++) {
+          const dt = new Date(today);
+          dt.setDate(today.getDate() - (w * 7) + d - today.getDay() + 1);
+          if (dt.getDay() === 0) continue; // skip Sunday
+          const dateKey = dt.toISOString().slice(0,10);
+          const dp = byDate[dateKey] || [];
+          const pIn   = dp.find(p=>p.event==='Punch In');
+          const pOut  = dp.find(p=>p.event==='Punch Out');
+          const mOut  = dp.find(p=>p.event==='Meal Break Out');
+          const mIn   = dp.find(p=>p.event==='Meal Break In');
+          if (!pIn && !pOut) continue;
+          // Calculate hours
+          let workedMins = 0;
+          if (pIn && pOut) {
+            const inMs  = new Date(dateKey+'T'+pIn.time) - 0;
+            const outMs = new Date(dateKey+'T'+pOut.time) - 0;
+            const mealMs = (mOut && mIn)
+              ? (new Date(dateKey+'T'+mIn.time) - new Date(dateKey+'T'+mOut.time))
+              : 0;
+            workedMins = Math.round((outMs - inMs - mealMs) / 60000);
+          }
+          const h = Math.floor(workedMins/60);
+          const m = workedMins % 60;
+          weekDays.push({
+            date:     dt.toLocaleDateString('en-US',{month:'short',day:'numeric'}),
+            dayName:  dt.toLocaleDateString('en-US',{weekday:'short'}),
+            punchIn:  pIn  ? pIn.time  : '—',
+            punchOut: pOut ? pOut.time : '—',
+            lunchOut: mOut ? mOut.time : '—',
+            lunchIn:  mIn  ? mIn.time  : '—',
+            worked:   `${h}:${String(m).padStart(2,'0')}`,
+            workedMins,
+            isLate:   String(pIn?.isLate)==='true',
+            minsLate: pIn?.minsLate || 0,
+            adj:      '—',
+          });
+        }
+        if (weekDays.length) weeks.push(weekDays);
+      }
+      HISTORY[currentEmpId] = weeks;
+    } catch(e) {
+      logEl.innerHTML = '<div class="empty-state">Could not load history.</div>';
+      return;
+    }
+  }
+
+  const hist = HISTORY[currentEmpId] || [];
+  if (!hist.length) {
+    if (summaryEl) summaryEl.innerHTML = '';
+    logEl.innerHTML = '<div class="empty-state">No punch history found.</div>';
     return;
   }
-  const offset = st.weekOffset;
+
+  const offset = Math.min(st.weekOffset, hist.length - 1);
+  st.weekOffset = offset;
   const week = hist[offset];
 
   document.getElementById('weekLabel').textContent =
     offset === 0 ? 'Last week' :
     offset === 1 ? '2 weeks ago' :
     offset + ' weeks ago';
-  document.getElementById('nextWeekBtn').disabled = offset === 0;
+  document.getElementById('nextWeekBtn').disabled   = offset === 0;
   document.getElementById('nextWeekBtn').style.opacity = offset === 0 ? '0.4' : '1';
 
-  let totalMins = 0, otMins = 0, lateCount = 0;
+  let totalMins=0, otMins=0, lateCount=0;
   week.forEach(d => {
-    const parts = d.worked.split(':');
-    const mins = parseInt(parts[0])*60 + parseInt(parts[1]);
-    totalMins += mins;
-    if (mins > 480) otMins += (mins - 480);
+    totalMins += d.workedMins;
+    if (d.workedMins > 420) otMins += (d.workedMins - 420); // 35h/week = 7h/day
     if (d.isLate) lateCount++;
   });
   const totalH = Math.floor(totalMins/60)+':'+String(totalMins%60).padStart(2,'0');
   const otH    = Math.floor(otMins/60)+':'+String(otMins%60).padStart(2,'0');
 
-  document.getElementById('weekSummary').innerHTML = `
+  if (summaryEl) summaryEl.innerHTML = `
     <div class="wsm-cell"><div class="wsm-lbl">Days</div><div class="wsm-val">${week.length}</div></div>
     <div class="wsm-cell"><div class="wsm-lbl">Total hrs</div><div class="wsm-val">${totalH}</div></div>
-    <div class="wsm-cell"><div class="wsm-lbl">Overtime</div><div class="wsm-val" style="color:${otMins>0?'var(--warn)':'var(--ink3)'};">${otH}</div></div>
-    <div class="wsm-cell"><div class="wsm-lbl">Late arrivals</div><div class="wsm-val" style="color:${lateCount>0?'#b91c1c':'var(--ink3)'};">${lateCount}</div></div>
-  `;
+    <div class="wsm-cell"><div class="wsm-lbl">Overtime</div><div class="wsm-val" style="color:${otMins>0?'#b84000':'var(--ink3)'};">${otH}</div></div>
+    <div class="wsm-cell"><div class="wsm-lbl">Late arrivals</div><div class="wsm-val" style="color:${lateCount>0?'#b91c1c':'var(--ink3)'};">${lateCount}</div></div>`;
 
-  document.getElementById('historyLog').innerHTML =
-    `<table class="log-table">
-      <thead><tr><th>Day</th><th>In</th><th>Meal</th><th>Out</th><th>Hrs</th><th>Adj</th></tr></thead>
-      <tbody>` +
+  logEl.innerHTML = `<table class="log-table">
+    <thead><tr><th>Day</th><th>In</th><th>Meal</th><th>Out</th><th>Hrs</th></tr></thead>
+    <tbody>` +
     week.map(d => {
-      const lateStyle = d.isLate ? 'style="color:#b91c1c;font-weight:700;"' : '';
-      const lateBadge = d.isLate ? `<span class="late-badge">+${d.minsLate}m</span>` : '';
+      const late = d.isLate ? `<span class="late-badge">+${d.minsLate}m</span>` : '';
+      const inStyle = d.isLate ? 'style="color:#b91c1c;font-weight:700;"' : '';
+      const meal = d.lunchOut !== '—' ? `${d.lunchOut}–${d.lunchIn}` : '—';
       return `<tr>
         <td style="color:#444440;">${d.dayName} ${d.date}</td>
-        <td ${lateStyle}>${d.punchIn}${lateBadge}</td>
-        <td style="color:#28749A;font-weight:500;">${d.lunchOut}–${d.lunchIn}</td>
+        <td ${inStyle}>${d.punchIn}${late}</td>
+        <td style="color:#28749A;">${meal}</td>
         <td class="event-out">${d.punchOut}</td>
         <td style="font-weight:500;">${d.worked}</td>
-        <td>${d.adj === '—' ? '<span style="color:#444440;">—</span>' : `<span class="${d.adj.startsWith('+') ? 'adj-pos' : 'adj-neg'}">${d.adj}h</span>`}</td>
       </tr>`;
     }).join('') +
-    `</tbody></table>`;
+    '</tbody></table>';
 }
 
 // ══════════════════════════════════════════
@@ -1648,8 +1717,13 @@ function renderWeekHistory() {
 // ══════════════════════════════════════════
 async function renderAccruals() {
   let acc;
-  try { acc = await loadAccruals(currentEmpId); } catch(e){ return; }
-  if (!acc) return;
+  try {
+    acc = await loadAccruals(currentEmpId);
+  } catch(e) {
+    console.warn('Accruals not found, using defaults:', e.message);
+    acc = { vacation:{bal:0,max:120,used:0}, sick:{bal:0,max:200,used:0}, personal:{bal:0,max:16,used:0}, floatHoliday:{bal:0,max:8,used:0}, lwop:{bal:0,max:0,used:0}, jury:{used:0,events:0}, bereavement:{used:0,events:0} };
+  }
+  if (!acc) acc = { vacation:{bal:0,max:120,used:0}, sick:{bal:0,max:200,used:0}, personal:{bal:0,max:16,used:0}, floatHoliday:{bal:0,max:8,used:0}, lwop:{bal:0,max:0,used:0}, jury:{used:0,events:0}, bereavement:{used:0,events:0} };
 
   // Sick time: display balance as days.tenths e.g. 40h = 5.00 days, 41h = 5.14 days
   // 1 day = 8 hours. Remaining hours converted to tenths via the sick table.
