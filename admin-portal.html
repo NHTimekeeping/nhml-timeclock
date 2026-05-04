@@ -437,7 +437,31 @@ textarea { resize: vertical; min-height: 70px; }
   <!-- ── TIME OFF TAB ── -->
   <div id="tab-timeoff" class="tab-section">
 
-    <!-- Post Holiday / Library Closure -->
+    <!-- Time Off Requests — FIRST -->
+    <div class="section-card" style="margin-bottom:1.2rem;">
+      <div class="sc-hdr">
+        <h3>Time Off Requests</h3>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <select id="toFilterStatus" onchange="renderTimeOffAdmin()" style="width:160px;padding:6px 10px;font-size:13px;">
+            <option value="ALL">All requests</option>
+            <option value="pending">Pending only</option>
+            <option value="approved">Approved</option>
+            <option value="denied">Denied</option>
+          </select>
+          <select id="toFilterEmp" onchange="renderTimeOffAdmin()" style="width:180px;padding:6px 10px;font-size:13px;">
+            <option value="ALL">All employees</option>
+          </select>
+        </div>
+      </div>
+      <div class="sc-body" style="padding:0;">
+        <table class="data-table">
+          <thead><tr><th>Employee</th><th>Type</th><th>Dates</th><th>Amount</th><th>Note</th><th>Submitted</th><th>Status</th><th>Action</th></tr></thead>
+          <tbody id="timeoffTbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Post Holiday / Library Closure — SECOND -->
     <div class="section-card" style="margin-bottom:1.2rem;">
       <div class="sc-hdr">
         <h3>Post Holiday Pay / Library Closure</h3>
@@ -470,28 +494,6 @@ textarea { resize: vertical; min-height: 70px; }
         </div>
         <button class="btn btn-blue" onclick="postPaidNonWorked()" style="margin-top:4px;">Post to employee record(s)</button>
         <div id="pnwMsg" style="font-size:12px;color:var(--green);margin-top:8px;display:none;"></div>
-      </div>
-    </div>
-    <div class="section-card">
-      <div class="sc-hdr">
-        <h3>Time Off Requests</h3>
-        <div style="display:flex;gap:8px;align-items:center;">
-          <select id="toFilterStatus" onchange="renderTimeOffAdmin()" style="width:160px;padding:6px 10px;font-size:13px;">
-            <option value="ALL">All requests</option>
-            <option value="pending">Pending only</option>
-            <option value="approved">Approved</option>
-            <option value="denied">Denied</option>
-          </select>
-          <select id="toFilterEmp" onchange="renderTimeOffAdmin()" style="width:180px;padding:6px 10px;font-size:13px;">
-            <option value="ALL">All employees</option>
-          </select>
-        </div>
-      </div>
-      <div class="sc-body" style="padding:0;">
-        <table class="data-table">
-          <thead><tr><th>Employee</th><th>Type</th><th>Dates</th><th>Amount</th><th>Note</th><th>Submitted</th><th>Status</th><th>Action</th></tr></thead>
-          <tbody id="timeoffTbody"></tbody>
-        </table>
       </div>
     </div>
   </div>
@@ -1125,34 +1127,61 @@ async function renderTimeOffAdmin() {
   const filterStatus = document.getElementById('toFilterStatus').value;
   const filterEmp    = document.getElementById('toFilterEmp').value;
   const filtered = requests.filter(r=>{
-    if (filterStatus!=='ALL'&&r.status!==filterStatus) return false;
-    if (filterEmp!=='ALL'&&r.empId!==filterEmp) return false;
+    const rid = r.requestId||r.requestid||'';
+    if (!rid) return false;
+    const st = r.status||'';
+    if (filterStatus!=='ALL'&&st!==filterStatus) return false;
+    const eid = r.empId||r.empid||'';
+    if (filterEmp!=='ALL'&&eid!==filterEmp) return false;
     return true;
-  }).sort((a,b)=>b.submittedAt.localeCompare(a.submittedAt));
+  }).sort((a,b)=>(b.submittedAt||b.submittedat||'').localeCompare(a.submittedAt||a.submittedat||''));
   const ss={pending:'background:#FEF0B8;color:#5a3a00;border:1px solid #c8980a;',approved:'background:#eaf2ec;color:#2d5a3d;border:1px solid #34A952;',denied:'background:#fef2f2;color:#BD3531;border:1px solid #BD3531;',used:'background:#e8eef5;color:#1e3a5f;'};
   document.getElementById('timeoffTbody').innerHTML = filtered.length ? filtered.map(r=>{
-    const emp=emps.find(e=>e.id===r.empId);
-    const name=emp?`${emp.last}, ${emp.first[0]}.`:r.empId;
-    const isPending=r.status==='pending';
+    const rid    = r.requestId||r.requestid||'';
+    const empId  = r.empId||r.empid||'';
+    const emp    = emps.find(e=>e.id===empId);
+    const name   = r.empName||r.empname||(emp?`${emp.last}, ${emp.first[0]}.`:empId);
+    const type   = r.type||'—';
+    const start  = r.startDate||r.startdate||'—';
+    const end    = r.endDate||r.enddate||start;
+    const amt    = r.amount||'—';
+    const note   = r.note||'';
+    const sub    = r.submittedAt||r.submittedat||'';
+    const status = (r.status||'pending').toLowerCase();
+    const decided= r.decidedAt||r.decidedat||'';
+    const isPending = status==='pending';
     return `<tr>
-      <td>${name}</td><td style="font-weight:500;">${r.type}</td>
-      <td style="font-size:12px;">${r.startDate}${r.endDate&&r.endDate!==r.startDate?' → '+r.endDate:''}</td>
-      <td>${r.amount}</td>
-      <td style="font-size:12px;color:var(--ink3);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${r.note||''}">${r.note||'—'}</td>
-      <td style="font-size:11px;color:var(--ink3);">${r.submittedAt?new Date(r.submittedAt).toLocaleDateString('en-US',{month:'short',day:'numeric'}):''}</td>
-      <td><span class="pill" style="${ss[r.status]||''};font-size:11px;">${r.status.charAt(0).toUpperCase()+r.status.slice(1)}</span></td>
+      <td>${name}</td><td style="font-weight:500;">${type}</td>
+      <td style="font-size:12px;">${start}${end&&end!==start?' → '+end:''}</td>
+      <td>${amt}</td>
+      <td style="font-size:12px;color:var(--ink3);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${note}">${note||'—'}</td>
+      <td style="font-size:11px;color:var(--ink3);">${sub?new Date(sub).toLocaleDateString('en-US',{month:'short',day:'numeric'}):''}</td>
+      <td><span class="pill" style="${ss[status]||''};font-size:11px;">${status.charAt(0).toUpperCase()+status.slice(1)}</span></td>
       <td>${isPending?`<div style="display:flex;gap:5px;">
-        <button class="btn btn-green btn-sm" onclick="decideTimeOff('${r.requestId}','approved')">✓</button>
-        <button class="btn btn-red btn-sm" onclick="decideTimeOff('${r.requestId}','denied')">✕</button>
-      </div>`:`<span style="font-size:12px;color:var(--ink3);">${r.decidedAt?new Date(r.decidedAt).toLocaleDateString('en-US',{month:'short',day:'numeric'}):''}</span>`}</td>
+        <button class="btn btn-green btn-sm" onclick="decideTimeOff('${rid}','approved')">✓ Approve</button>
+        <button class="btn btn-red btn-sm" onclick="decideTimeOff('${rid}','denied')">✕ Deny</button>
+      </div>`:`<span style="font-size:12px;color:var(--ink3);">${decided?new Date(decided).toLocaleDateString('en-US',{month:'short',day:'numeric'}):''}</span>`}</td>
     </tr>`;
   }).join('') : `<tr><td colspan="8"><div class="empty">No time off requests.</div></td></tr>`;
   updatePendingBadge();
 }
 async function decideTimeOff(requestId, decision) {
   showLoading(decision==='approved'?'Approving…':'Denying…');
-  await decideTimeOffAPI(requestId, decision);
-  hideLoading(); renderTimeOffAdmin(); toast(`Request ${decision}`); updatePendingBadge();
+  try {
+    const result = await Promise.race([
+      decideTimeOffAPI(requestId, decision),
+      new Promise((_,reject) => setTimeout(()=>reject(new Error('Timeout')), 15000))
+    ]);
+    hideLoading();
+    if (!result.ok) { toast('Error: '+(result.error||'Unknown error')); return; }
+    renderTimeOffAdmin();
+    toast('Request '+decision);
+    updatePendingBadge();
+  } catch(e) {
+    hideLoading();
+    toast('Could not update request: '+e.message);
+    console.error('decideTimeOff error:', e);
+  }
 }
 async function updatePendingBadge() {
   const all = await loadAllTimeOff().catch(()=>[]);
