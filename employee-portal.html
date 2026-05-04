@@ -744,22 +744,51 @@ input::placeholder { color: #c0bdd8; }
 //  Uses an external IP-echo service to get the client IP.
 // ══════════════════════════════════════════
 const ALLOWED_RANGES = ['192.168.32.'];
-const REDIRECT_URL   = 'https://www.google.com'; // change to your desired redirect
+
+// IP CHECK DISABLED FOR TESTING — set TESTING = false to re-enable
+const TESTING = true;
 
 async function checkIP() {
+  if (TESTING) return; // remove this line when going live
   try {
     const res  = await fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(4000) });
     const data = await res.json();
     const ip   = data.ip || '';
     const allowed = ALLOWED_RANGES.some(range => ip.startsWith(range));
     if (!allowed) {
-      document.body.innerHTML = '';
-      window.location.replace(REDIRECT_URL);
+      showIPBlock();
     }
   } catch(e) {
-    // If the IP check fails (e.g. no internet), allow access so employees
-    // on an isolated internal network can still punch in.
+    // If check fails (isolated network), allow access
   }
+}
+
+function showIPBlock() {
+  document.body.innerHTML = `
+    <div style="
+      min-height:100vh;
+      background:#1e1e2e;
+      background-image:radial-gradient(ellipse 100% 60% at 50% -10%, rgba(145,98,155,0.25) 0%, transparent 70%);
+      display:flex;flex-direction:column;align-items:center;justify-content:center;
+      font-family:'Lexend',sans-serif;text-align:center;padding:2rem;
+    ">
+      <div style="font-size:3.5rem;margin-bottom:1.5rem;">🏛️</div>
+      <div style="
+        font-family:'Atkinson Hyperlegible',sans-serif;
+        font-size:1.8rem;font-weight:700;color:#fff;margin-bottom:0.75rem;
+      ">You're not at the library</div>
+      <div style="font-size:1rem;color:rgba(255,255,255,0.6);max-width:380px;line-height:1.7;margin-bottom:2rem;">
+        The NHML Employee Timeclock is only available on the library's network.<br>
+        Please clock in from a library computer.
+      </div>
+      <div style="
+        background:rgba(145,98,155,0.15);border:1px solid rgba(145,98,155,0.3);
+        border-radius:10px;padding:1rem 1.5rem;
+        font-size:0.85rem;color:rgba(255,255,255,0.45);
+      ">
+        North Haven Memorial Library · Staff Portal
+      </div>
+    </div>`;
 }
 checkIP();
 
