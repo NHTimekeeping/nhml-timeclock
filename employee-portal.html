@@ -903,6 +903,8 @@ async function submitTimeOffReq(request) {
 async function savePunch(punch) {
   return api('addPunch', {}, {punch});
 }
+
+function showLoading(msg='Loading…') {
   let el = document.getElementById('_ld');
   if (!el) {
     el = document.createElement('div'); el.id='_ld';
