@@ -719,20 +719,28 @@ const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxwOb02YpZ_I4H6AQavA
 const ADMIN_PW   = 'admin2024';
 
 async function api(action, params={}, body=null) {
+  const url = SCRIPT_URL + '?action=' + encodeURIComponent(action);
+  const payload = { action, ...params, ...(body||{}) };
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
   try {
-    // Send action in URL AND body — Apps Script sometimes redirects POST→GET
-    const url = SCRIPT_URL + '?action=' + encodeURIComponent(action);
-    const payload = { action, ...params, ...(body||{}) };
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'text/plain' }, // text/plain avoids CORS preflight
+      headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify(payload),
       redirect: 'follow',
+      signal: controller.signal,
     });
+    clearTimeout(timer);
     const json = await res.json();
     if (!json.ok) throw new Error(json.error || 'API error');
     return json;
-  } catch(err) { console.error('API:', action, err); throw err; }
+  } catch(err) {
+    clearTimeout(timer);
+    if (err.name === 'AbortError') throw new Error('Request timed out after 20 seconds');
+    console.error('API:', action, err);
+    throw err;
+  }
 }
 
 function showLoading(msg='Loading…') {
@@ -784,9 +792,8 @@ function adminLogout() {
 //  INIT
 // ════════════════════════════════════════
 async function initAdmin() {
-  showLoading('Connecting to server…');
+  showLoading('Connecting…');
   try {
-    await api('initSheets',{},{});
     await renderStats();
     await renderEmpTable();
     await populateEmpSelectors();
@@ -797,7 +804,7 @@ async function initAdmin() {
     hideLoading();
   } catch(e) {
     hideLoading();
-    alert('Could not connect to server.\n\nMake sure SCRIPT_URL is set correctly in both portal files.\n\nError: '+e.message);
+    alert('Could not connect to server.\n\nCheck that your Apps Script is deployed and the URL is correct.\n\nError: '+e.message);
   }
 }
 
