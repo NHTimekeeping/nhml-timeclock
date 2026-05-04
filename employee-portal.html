@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NHML Timeclock</title>
+<title>NHML Timeclock — Employee</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Lexend:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -600,7 +600,7 @@ input::placeholder { color: #c0bdd8; }
           <!-- rendered by JS -->
         </div>
 
-        <div style="padding:0 1.5rem;">
+        <div style="padding:1.5rem 1.5rem 0;">
           <div class="section-title">Today's log</div>
           <div id="todayLog">
             <div class="empty-state">No punches recorded yet today.</div>
@@ -889,8 +889,11 @@ async function loadTodayPunches(empId) {
   const r = await api('getPunches', {empId, date: today});
   return r.data || [];
 }
+let _accrualsCache = null;
 async function loadAccruals(empId) {
+  if (_accrualsCache && empId && _accrualsCache._empId === empId) return _accrualsCache._data;
   const r = await api('getAccruals', {empId});
+  if (r.ok && r.data && empId) { _accrualsCache = {_empId: empId, _data: r.data}; }
   return r.data || null;
 }
 async function loadTimeOff(empId) {
@@ -1141,8 +1144,8 @@ async function renderTimeOffRequests() {
     <tbody>` +
     requests.slice().reverse().map(r => {
       const type   = r.type||'—';
-      const start  = r.startDate||r.startdate||'—';
-      const end    = r.endDate||r.enddate||start;
+      const start  = String(r.startDate||r.startdate||'—').slice(0,10);
+      const end    = String(r.endDate||r.enddate||start).slice(0,10);
       const amt    = r.amount||'—';
       const status = (r.status||'pending').toLowerCase();
       return `<tr>
@@ -1159,10 +1162,10 @@ async function submitTimeOffRequest() {
   const type      = document.getElementById('toReqType').value;
   const startDate = document.getElementById('toReqStart').value;
   const endDate   = document.getElementById('toReqEnd').value || startDate;
-  const note      = document.getElementById('toReqNote').value.trim();
   const toReqAmt  = document.getElementById('toReqAmount').value;
+  const note      = document.getElementById('toReqNote').value.trim();
   const errEl     = document.getElementById('toReqErr');
-  if (!startDate) { errEl.textContent = 'Please select a start date.'; errEl.style.display='block'; return; }
+  if (!startDate) { errEl.textContent='Please select a start date.'; errEl.style.display='block'; return; }
   errEl.style.display = 'none';
 
   const emp = ge();
@@ -1170,26 +1173,36 @@ async function submitTimeOffRequest() {
 
   showLoading('Submitting request…');
   try {
-    await submitTimeOffReq({
+    const result = await submitTimeOffReq({
       requestId:   'TO-'+Date.now(),
       empId:       currentEmpId,
-      empName:     emp.first+' '+emp.last,
-      type, startDate, endDate,
+      empName:     emp.last+', '+emp.first,
+      type,
+      startDate,   // already YYYY-MM-DD from date input
+      endDate,
       amount:      toReqAmt,
       note,
       status:      'pending',
       submittedAt: new Date().toISOString(),
     });
+    hideLoading();
+    if (!result.ok) {
+      errEl.textContent = result.error || 'Could not submit request.';
+      errEl.style.display = 'block';
+      return;
+    }
     document.getElementById('toReqStart').value = '';
     document.getElementById('toReqEnd').value   = '';
     document.getElementById('toReqNote').value  = '';
-    hideLoading();
-    renderTimeOffRequests();
-    updateEmpPendingBadge();
+    // Clear accruals cache so updated balance shows
+    _accrualsCache = null;
+    await renderTimeOffRequests();
+    await updateEmpPendingBadge();
+    await renderAccruals();
     toast('Request submitted — pending admin approval');
   } catch(e) {
     hideLoading();
-    errEl.textContent = 'Could not submit request. Please try again.';
+    errEl.textContent = 'Could not submit request: '+e.message;
     errEl.style.display = 'block';
   }
 }
