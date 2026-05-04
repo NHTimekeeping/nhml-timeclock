@@ -793,19 +793,14 @@ function adminLogout() {
 // ════════════════════════════════════════
 async function initAdmin() {
   showLoading('Connecting…');
-  try {
-    await renderStats();
-    await renderEmpTable();
-    await populateEmpSelectors();
-    await renderPunchLog();
-    setCurrentPeriod(); updateExportLabel();
-    await updatePendingBadge();
-    setInterval(updatePendingBadge, 30000);
-    hideLoading();
-  } catch(e) {
-    hideLoading();
-    alert('Could not connect to server.\n\nCheck that your Apps Script is deployed and the URL is correct.\n\nError: '+e.message);
-  }
+  try { await renderStats(); } catch(e) { console.warn('renderStats:', e.message); }
+  try { await renderEmpTable(); } catch(e) { console.warn('renderEmpTable:', e.message); }
+  try { await populateEmpSelectors(); } catch(e) { console.warn('populateEmpSelectors:', e.message); }
+  try { await renderPunchLog(); } catch(e) { console.warn('renderPunchLog:', e.message); }
+  try { setCurrentPeriod(); updateExportLabel(); } catch(e) { console.warn('period:', e.message); }
+  try { await updatePendingBadge(); } catch(e) { console.warn('pendingBadge:', e.message); }
+  setInterval(updatePendingBadge, 30000);
+  hideLoading();
 }
 
 // ════════════════════════════════════════
@@ -1334,6 +1329,7 @@ async function exportAdjCSV() {
 // ════════════════════════════════════════
 //  EXPORT
 // ════════════════════════════════════════
+function mondayOfDate(d){const dt=new Date(d);const day=dt.getDay();dt.setDate(dt.getDate()-(day===0?6:day-1));dt.setHours(0,0,0,0);return dt;}
 function setFillCurrentPeriod() {
   const mon = mondayOfDate(new Date());
   document.getElementById('fillPeriodStart').value = mon.toISOString().slice(0,10);
