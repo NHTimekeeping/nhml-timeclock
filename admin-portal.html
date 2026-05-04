@@ -568,8 +568,24 @@ textarea { resize: vertical; min-height: 70px; }
 
   <!-- ── EXPORT TAB ── -->
   <div id="tab-export" class="tab-section">
-    <div class="section-card">
-      <div class="sc-hdr"><h3>Bi-Weekly Export</h3></div>
+    <div class="section-card" style="margin-bottom:1.4rem;">
+      <div class="sc-hdr">
+        <h3>Fill Pay Period Tab in Spreadsheet</h3>
+        <span style="font-size:12px;color:var(--ink3);">Writes daily hours, OT, holidays, closures, time off & adjustments to the matching WE tab</span>
+      </div>
+      <div class="sc-body">
+        <div class="period-bar">
+          <span class="period-lbl">Pay period start (Monday):</span>
+          <input type="date" id="fillPeriodStart" style="width:170px;padding:7px 10px;font-size:13px;">
+          <button class="btn btn-blue btn-sm" onclick="setFillCurrentPeriod()">Current period</button>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn btn-green" onclick="fillPayPeriodTab()">📝 Fill this pay period tab</button>
+          <button class="btn btn-ghost" onclick="fillAllPayPeriodTabs()" style="font-size:0.85rem;">Fill all WE tabs</button>
+        </div>
+        <div id="fillMsg" style="font-size:13px;margin-top:10px;display:none;"></div>
+      </div>
+    </div>
       <div class="sc-body">
         <div class="period-bar">
           <span class="period-lbl">Pay period start (Monday):</span>
@@ -1142,8 +1158,8 @@ async function renderTimeOffAdmin() {
     const emp    = emps.find(e=>e.id===empId);
     const name   = r.empName||r.empname||(emp?`${emp.last}, ${emp.first[0]}.`:empId);
     const type   = r.type||'—';
-    const start  = r.startDate||r.startdate||'—';
-    const end    = r.endDate||r.enddate||start;
+    const start  = String(r.startDate||r.startdate||'—').slice(0,10);
+    const end    = String(r.endDate||r.enddate||start).slice(0,10);
     const amt    = r.amount||'—';
     const note   = r.note||'';
     const sub    = r.submittedAt||r.submittedat||'';
@@ -1311,7 +1327,57 @@ async function exportAdjCSV() {
 // ════════════════════════════════════════
 //  EXPORT
 // ════════════════════════════════════════
-function mondayOfDate(d){const dt=new Date(d);const day=dt.getDay();dt.setDate(dt.getDate()-(day===0?6:day-1));dt.setHours(0,0,0,0);return dt;}
+function setFillCurrentPeriod() {
+  const mon = mondayOfDate(new Date());
+  document.getElementById('fillPeriodStart').value = mon.toISOString().slice(0,10);
+}
+async function fillPayPeriodTab() {
+  const val = document.getElementById('fillPeriodStart').value;
+  const msg = document.getElementById('fillMsg');
+  if (!val) { msg.textContent='Please select a pay period start date.'; msg.style.color='#BD3531'; msg.style.display='block'; return; }
+  showLoading('Filling pay period tab…');
+  try {
+    const r = await api('fillPayPeriod',{},{periodStart:val});
+    hideLoading();
+    if (r.ok) {
+      msg.textContent = `✓ Filled tab "${r.tab}" for ${r.employees} employees`;
+      msg.style.color = '#34A952';
+    } else {
+      msg.textContent = 'Error: '+(r.error||'Unknown error');
+      msg.style.color = '#BD3531';
+    }
+    msg.style.display = 'block';
+    setTimeout(()=>msg.style.display='none', 5000);
+  } catch(e) {
+    hideLoading();
+    msg.textContent = 'Failed: '+e.message;
+    msg.style.color = '#BD3531';
+    msg.style.display = 'block';
+  }
+}
+async function fillAllPayPeriodTabs() {
+  const msg = document.getElementById('fillMsg');
+  if (!confirm('Fill ALL pay period tabs? This may take 30–60 seconds.')) return;
+  showLoading('Filling all pay period tabs… please wait');
+  try {
+    const r = await api('fillAllPeriods',{},{});
+    hideLoading();
+    if (r.ok) {
+      msg.textContent = `✓ Filled ${r.filled} pay period tabs`;
+      msg.style.color = '#34A952';
+    } else {
+      msg.textContent = 'Error: '+(r.error||'Unknown error');
+      msg.style.color = '#BD3531';
+    }
+    msg.style.display = 'block';
+    setTimeout(()=>msg.style.display='none', 6000);
+  } catch(e) {
+    hideLoading();
+    msg.textContent = 'Failed: '+e.message;
+    msg.style.color = '#BD3531';
+    msg.style.display = 'block';
+  }
+}
 function setCurrentPeriod(){const mon=mondayOfDate(new Date());document.getElementById('exportPeriodStart').value=mon.toISOString().slice(0,10);updateExportLabel();}
 function updateExportLabel(){
   const val=document.getElementById('exportPeriodStart').value;
