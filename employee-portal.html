@@ -1042,9 +1042,13 @@ async function doLogin() {
       const r = await api('getEmployees');
       EMPLOYEES = (r.data||[]).filter(e=>String(e.status).toLowerCase()==='active' && e.id && e.last);
     }
-    const emp = EMPLOYEES.find(e=>e.last.toLowerCase()===last && String(e.pin).trim()===String(pin).trim());
+    const emp = EMPLOYEES.find(e=>{
+      const lastMatch = String(e.last).toLowerCase().trim() === last.trim();
+      const pinMatch  = String(e.pin).trim() === String(pin).trim();
+      return lastMatch && pinMatch;
+    });
     console.log('Login attempt:', last, pin, '| Employees loaded:', EMPLOYEES.length, '| Match:', !!emp);
-    if (EMPLOYEES.length > 0) console.log('Sample employee:', EMPLOYEES[0].last, EMPLOYEES[0].pin);
+    if (EMPLOYEES.length > 0) console.log('First emp:', EMPLOYEES[0].last, '|', EMPLOYEES[0].pin, '| types:', typeof EMPLOYEES[0].last, typeof EMPLOYEES[0].pin);
     if (!emp) {
       hideLoading();
       err.innerHTML = 'Last name or PIN not recognized. Please try again.';
