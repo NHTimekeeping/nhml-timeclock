@@ -1065,6 +1065,7 @@ async function doLogin() {
     const emp = EMPLOYEES.find(e=>{
       const lastMatch = String(e.last).toLowerCase().trim() === last.trim();
       const pinMatch  = String(e.pin).trim() === String(pin).trim();
+      console.log(`Check: last="${e.last}" vs "${last}" = ${lastMatch} | pin="${e.pin}"(${typeof e.pin}) vs "${pin}"(${typeof pin}) = ${pinMatch}`);
       return lastMatch && pinMatch;
     });
     console.log('Login attempt:', last, pin, '| Employees loaded:', EMPLOYEES.length, '| Match:', !!emp);
