@@ -1098,23 +1098,29 @@ async function renderYTDSummary() {
 
   try {
     const allEmps = await loadEmployees();
-    const filterVal = document.getElementById('ytdEmpFilter')?.value || 'ALL';
-    const emps = allEmps.filter(e => e.id && e.last && (filterVal === 'ALL' || e.id === filterVal));
+    const validEmps = allEmps.filter(e => e.id && e.last);
 
-    // Populate filter selector
+    // Populate filter selector first (only if not already populated)
     const sel = document.getElementById('ytdEmpFilter');
     if (sel && sel.options.length <= 1) {
-      allEmps.filter(e=>e.id&&e.last).forEach(e => {
+      validEmps.forEach(e => {
         const opt = document.createElement('option');
         opt.value = e.id; opt.textContent = e.last+', '+e.first;
         sel.appendChild(opt);
       });
     }
 
+    // Now read filter value after populating
+    const filterVal = sel?.value || 'ALL';
+    const emps = validEmps.filter(e => filterVal === 'ALL' || e.id === filterVal);
+
     let html = '';
     for (const emp of emps) {
-      const acc = await loadAccruals(emp.id).catch(() => null);
-      if (!acc) continue;
+      let acc = null;
+      try {
+        const r = await api('getAccruals', {empId: emp.id});
+        acc = r.data || null;
+      } catch(e) { acc = null; }
 
       const typePill = String(emp.empType||'').toLowerCase() === 'full-time'
         ? `<span class="pill" style="background:#e8eef5;color:#1e3a5f;font-size:11px;">FT</span>`
@@ -1128,43 +1134,43 @@ async function renderYTDSummary() {
         </div>
         <div class="emp-accrual-body">`;
 
-      // Regular accrual types
-      TYPES.forEach(t => {
-        const a = acc[t.key] || {bal:0, max:0, used:0};
-        const pct = (t.key==='lwop') ? 0 : a.max>0 ? Math.min(100, Math.round(a.used/a.max*100)) : 0;
-        const usedColor = t.warn && a.used > 0 ? '#b84000' : t.color;
-        const balTxt = t.key==='sick' ? `${a.bal}h available` : t.key==='lwop' ? '—' : `${a.bal} days left`;
-        html += `<div class="accrual-row">
-          <div class="accrual-icon" style="background:${t.bg};color:${t.color};">${t.icon}</div>
-          <div class="accrual-info">
-            <div class="accrual-name">${t.label}</div>
-            <div class="accrual-note">${t.note}</div>
-            ${t.key!=='lwop'&&a.max>0?`<div class="accrual-bar"><div class="accrual-fill" style="width:${pct}%;background:${t.color};"></div></div>`:''}
-          </div>
-          <div class="accrual-nums">
-            <strong style="color:${usedColor};">${a.used} ${t.unit} used</strong>
-            ${balTxt}
-          </div>
-        </div>`;
-      });
-
-      // Special leave
-      html += `<div style="height:1px;background:var(--border);margin:4px 0;"></div>`;
-      SPECIAL.forEach(t => {
-        const a = acc[t.key] || {used:0, events:0};
-        html += `<div class="accrual-row">
-          <div class="accrual-icon" style="background:${t.bg};color:${t.color};">${t.icon}</div>
-          <div class="accrual-info">
-            <div class="accrual-name">${t.label}</div>
-            <div class="accrual-note">${a.events>0?`${a.events} occurrence${a.events!==1?'s':''} this year`:'No occurrences this year'}</div>
-          </div>
-          <div class="accrual-nums">
-            <strong style="color:${t.color};">${a.used}h</strong>
-            used this year
-          </div>
-        </div>`;
-      });
-
+      if (!acc) {
+        html += `<div style="padding:1rem 0;font-size:13px;color:var(--ink3);">No accrual data found for this employee.</div>`;
+      } else {
+        TYPES.forEach(t => {
+          const a = acc[t.key] || {bal:0, max:0, used:0};
+          const pct = (t.key==='lwop') ? 0 : a.max>0 ? Math.min(100, Math.round(a.used/a.max*100)) : 0;
+          const usedColor = t.warn && a.used > 0 ? '#b84000' : t.color;
+          const balTxt = t.key==='sick' ? `${a.bal}h available` : t.key==='lwop' ? '—' : `${a.bal} days left`;
+          html += `<div class="accrual-row">
+            <div class="accrual-icon" style="background:${t.bg};color:${t.color};">${t.icon}</div>
+            <div class="accrual-info">
+              <div class="accrual-name">${t.label}</div>
+              <div class="accrual-note">${t.note}</div>
+              ${t.key!=='lwop'&&a.max>0?`<div class="accrual-bar"><div class="accrual-fill" style="width:${pct}%;background:${t.color};"></div></div>`:''}
+            </div>
+            <div class="accrual-nums">
+              <strong style="color:${usedColor};">${a.used} ${t.unit} used</strong>
+              ${balTxt}
+            </div>
+          </div>`;
+        });
+        html += `<div style="height:1px;background:var(--border);margin:4px 0;"></div>`;
+        SPECIAL.forEach(t => {
+          const a = acc[t.key] || {used:0, events:0};
+          html += `<div class="accrual-row">
+            <div class="accrual-icon" style="background:${t.bg};color:${t.color};">${t.icon}</div>
+            <div class="accrual-info">
+              <div class="accrual-name">${t.label}</div>
+              <div class="accrual-note">${a.events>0?`${a.events} occurrence${a.events!==1?'s':''} this year`:'No occurrences this year'}</div>
+            </div>
+            <div class="accrual-nums">
+              <strong style="color:${t.color};">${a.used}h</strong>
+              used this year
+            </div>
+          </div>`;
+        });
+      }
       html += `</div></div>`;
     }
 
@@ -1181,12 +1187,18 @@ async function renderAccrualEditor() {
   const empId = document.getElementById('accrualEmpSel').value;
   const body  = document.getElementById('accrualEditorBody');
   if (!empId) { body.innerHTML='<div class="empty">Select an employee to edit their accruals.</div>'; return; }
-  showLoading('Loading accruals…');
-  const acc = await loadAccruals(empId);
-  const emps = await loadEmployees();
-  const emp  = emps.find(e=>e.id===empId);
-  hideLoading();
-  if (!acc) { body.innerHTML='<div class="empty">No accrual data found.</div>'; return; }
+  body.innerHTML = '<div class="empty">Loading accruals…</div>';
+  let acc = null, emp = null;
+  try {
+    const r = await api('getAccruals', {empId});
+    acc = r.data || null;
+    const emps = await loadEmployees();
+    emp = emps.find(e=>e.id===empId);
+  } catch(e) {
+    body.innerHTML = `<div class="empty">Could not load accruals: ${e.message}</div>`;
+    return;
+  }
+  if (!acc) { body.innerHTML='<div class="empty">No accrual data found for this employee.</div>'; return; }
   const empName = emp ? emp.first+' '+emp.last : empId;
   const SICK_TABLE=[{label:'1 hour',val:0.14},{label:'2 hours',val:0.29},{label:'3 hours',val:0.43},{label:'Half day',val:0.50},{label:'4 hours',val:0.57},{label:'5 hours',val:0.71},{label:'6 hours',val:0.86},{label:'Full day',val:1.00}];
   const QOPTS=[0.25,0.50,0.75,1,1.25,1.5,1.75,2,2.25,2.5,2.75,3,3.25,3.5,3.75,4,4.25,4.5,4.75,5,5.25,5.5,5.75,6,6.25,6.5,6.75,7,7.25,7.5,7.75,8];
@@ -1240,29 +1252,38 @@ async function renderAccrualEditor() {
   </div>`;
 }
 async function saveAccrualEdits(empId) {
-  const acc = await loadAccruals(empId);
+  let acc;
+  try {
+    const r = await api('getAccruals', {empId});
+    acc = r.data;
+    if (!acc) throw new Error('No data');
+  } catch(e) { toast('Could not load accruals: '+e.message); return; }
+
+  acc.sick = acc.sick || {bal:0,max:200,used:0};
   acc.sick.bal  = parseFloat(document.getElementById('acc_sick_bal').value)||0;
   acc.sick.max  = parseFloat(document.getElementById('acc_sick_max').value)||0;
   const sd = parseFloat(document.getElementById('acc_sick_deduct').value)||0;
   if (sd>0) { acc.sick.used=parseFloat((acc.sick.used+sd).toFixed(2)); acc.sick.bal=parseFloat(Math.max(0,acc.sick.bal-sd).toFixed(2)); }
   ['vacation','personal','floatHoliday'].forEach(k=>{
+    acc[k] = acc[k] || {bal:0,max:0,used:0};
     acc[k].bal  = parseFloat(document.getElementById(`acc_${k}_bal`).value)||0;
     acc[k].used = parseFloat(document.getElementById(`acc_${k}_used`).value)||0;
     acc[k].max  = parseFloat(document.getElementById(`acc_${k}_max`).value)||0;
   });
+  acc.lwop = acc.lwop || {used:0};
   acc.lwop.used  = parseFloat(document.getElementById('acc_lwop_used').value)||0;
+  acc.jury = acc.jury || {used:0,events:0};
   acc.jury.used  = parseFloat(document.getElementById('acc_jury_used').value)||0;
   acc.jury.events= parseInt(document.getElementById('acc_jury_events').value)||0;
+  acc.bereavement = acc.bereavement || {used:0,events:0};
   acc.bereavement.used  = parseFloat(document.getElementById('acc_bereavement_used').value)||0;
   acc.bereavement.events= parseInt(document.getElementById('acc_bereavement_events').value)||0;
-  showLoading('Saving accruals…');
-  await saveAccrualsToSheet(empId, acc);
-  hideLoading();
-  const msg = document.getElementById('accSaveMsg');
-  msg.textContent='✓ Saved at '+new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
-  msg.style.color='#34A952';
-  setTimeout(()=>msg.textContent='',3000);
-  toast('Accruals saved for '+empId);
+  try {
+    await saveAccrualsToSheet(empId, acc);
+    const msg = document.getElementById('accSaveMsg');
+    if (msg) { msg.textContent='✓ Saved at '+new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}); msg.style.color='#34A952'; setTimeout(()=>msg.textContent='',3000); }
+    toast('Accruals saved for '+empId);
+  } catch(e) { toast('Save failed: '+e.message); }
 }
 
 // ════════════════════════════════════════
