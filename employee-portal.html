@@ -1139,12 +1139,19 @@ async function renderTimeOffRequests() {
   el.innerHTML = `<table class="log-table">
     <thead><tr><th>Type</th><th>Dates</th><th>Amount</th><th>Status</th></tr></thead>
     <tbody>` +
-    requests.slice().reverse().map(r => `<tr>
-      <td style="font-weight:500;">${r.type}</td>
-      <td style="font-size:12px;">${r.startDate}${r.endDate&&r.endDate!==r.startDate?' – '+r.endDate:''}</td>
-      <td>${r.amount}</td>
-      <td><span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:99px;${statusStyle[r.status]||''}">${r.status.charAt(0).toUpperCase()+r.status.slice(1)}</span></td>
-    </tr>`).join('') +
+    requests.slice().reverse().map(r => {
+      const type   = r.type||'—';
+      const start  = r.startDate||r.startdate||'—';
+      const end    = r.endDate||r.enddate||start;
+      const amt    = r.amount||'—';
+      const status = (r.status||'pending').toLowerCase();
+      return `<tr>
+        <td style="font-weight:500;">${type}</td>
+        <td style="font-size:12px;">${start}${end&&end!==start?' – '+end:''}</td>
+        <td>${amt}</td>
+        <td><span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:99px;${statusStyle[status]||''}">${status.charAt(0).toUpperCase()+status.slice(1)}</span></td>
+      </tr>`;
+    }).join('') +
     `</tbody></table>`;
 }
 
