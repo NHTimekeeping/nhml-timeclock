@@ -562,7 +562,7 @@ input::placeholder { color: #c0bdd8; }
         <button class="tab-btn active" onclick="switchTab('today')">Today</button>
         <button class="tab-btn" onclick="switchTab('history')">History</button>
         <button class="tab-btn" onclick="switchTab('accruals')">Accruals</button>
-        <button class="tab-btn" onclick="switchTab('timeoff')">Time Off <span id="empPendingBadge" style="display:none;background:#BD3531;color:#fff;font-size:10px;padding:1px 5px;border-radius:99px;margin-left:3px;font-weight:700;"></span></button>
+        <button class="tab-btn" onclick="switchTab('timeoff')">Request Time Off <span id="empPendingBadge" style="display:none;background:#BD3531;color:#fff;font-size:10px;padding:1px 5px;border-radius:99px;margin-left:3px;font-weight:700;"></span></button>
       </div>
 
       <!-- TODAY TAB -->
@@ -889,6 +889,10 @@ async function loadTodayPunches(empId) {
   const r = await api('getPunches', {empId, date: today});
   return r.data || [];
 }
+async function loadAccruals(empId) {
+  const r = await api('getAccruals', {empId});
+  return r.data || null;
+}
 async function loadTimeOff(empId) {
   const r = await api('getTimeOff', {empId});
   return r.data || [];
@@ -1149,40 +1153,38 @@ async function submitTimeOffRequest() {
   const startDate = document.getElementById('toReqStart').value;
   const endDate   = document.getElementById('toReqEnd').value || startDate;
   const note      = document.getElementById('toReqNote').value.trim();
+  const toReqAmt  = document.getElementById('toReqAmount').value;
   const errEl     = document.getElementById('toReqErr');
   if (!startDate) { errEl.textContent = 'Please select a start date.'; errEl.style.display='block'; return; }
   errEl.style.display = 'none';
 
-  // Build amount label
-  const toReqAmt  = document.getElementById('toReqAmount').value;
   const emp = ge();
-  const requests = loadTimeOff();
-  requests.push({
-    id: 'TO-'+Date.now(),
-    empId: currentEmpId,
-    empName: emp.first+' '+emp.last,
-    type,
-    startDate,
-    endDate,
-    amount: toReqAmt,
-    note,
-    status: 'pending',
-    submittedAt: new Date().toISOString(),
-    decidedAt: null,
-  });
-  await submitTimeOffReq({
-    requestId: 'TO-'+Date.now(),
-    empId: currentEmpId,
-    empName: emp.first+' '+emp.last,
-    type, startDate, endDate, amount: toReqAmt, note,
-    status:'pending', submittedAt: new Date().toISOString(),
-  });
-  document.getElementById('toReqStart').value = '';
-  document.getElementById('toReqEnd').value   = '';
-  document.getElementById('toReqNote').value  = '';
-  renderTimeOffRequests();
-  updateEmpPendingBadge();
-  toast('Request submitted — pending admin approval');
+  if (!emp) return;
+
+  showLoading('Submitting request…');
+  try {
+    await submitTimeOffReq({
+      requestId:   'TO-'+Date.now(),
+      empId:       currentEmpId,
+      empName:     emp.first+' '+emp.last,
+      type, startDate, endDate,
+      amount:      toReqAmt,
+      note,
+      status:      'pending',
+      submittedAt: new Date().toISOString(),
+    });
+    document.getElementById('toReqStart').value = '';
+    document.getElementById('toReqEnd').value   = '';
+    document.getElementById('toReqNote').value  = '';
+    hideLoading();
+    renderTimeOffRequests();
+    updateEmpPendingBadge();
+    toast('Request submitted — pending admin approval');
+  } catch(e) {
+    hideLoading();
+    errEl.textContent = 'Could not submit request. Please try again.';
+    errEl.style.display = 'block';
+  }
 }
 
 async function updateEmpPendingBadge() {
