@@ -1040,7 +1040,7 @@ async function doLogin() {
   try {
     if (!EMPLOYEES.length) {
       const r = await api('getEmployees');
-      EMPLOYEES = (r.data||[]).filter(e=>e.status==='active');
+      EMPLOYEES = (r.data||[]).filter(e=>String(e.status).toLowerCase()==='active' && e.id && e.last);
     }
     const emp = EMPLOYEES.find(e=>e.last.toLowerCase()===last && String(e.pin).trim()===String(pin).trim());
     console.log('Login attempt:', last, pin, '| Employees loaded:', EMPLOYEES.length, '| Match:', !!emp);
