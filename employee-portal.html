@@ -743,7 +743,7 @@ input::placeholder { color: #c0bdd8; }
 //  Set ALLOWED_RANGES to your subnet(s), e.g. ['192.168.1.', '10.0.0.']
 //  Uses an external IP-echo service to get the client IP.
 // ══════════════════════════════════════════
-const ALLOWED_RANGES = ['192.168.32.'];
+const ALLOWED_RANGES = ['192.168.32.']; // 192.168.32.0/24
 
 // IP CHECK DISABLED FOR TESTING — set TESTING = false to re-enable
 const TESTING = true;
@@ -1120,11 +1120,8 @@ async function doLogin() {
     const emp = EMPLOYEES.find(e=>{
       const lastMatch = String(e.last).toLowerCase().trim() === last.trim();
       const pinMatch  = String(e.pin).trim() === String(pin).trim();
-      console.log(`Check: last="${e.last}" vs "${last}" = ${lastMatch} | pin="${e.pin}"(${typeof e.pin}) vs "${pin}"(${typeof pin}) = ${pinMatch}`);
       return lastMatch && pinMatch;
     });
-    console.log('Login attempt:', last, pin, '| Employees loaded:', EMPLOYEES.length, '| Match:', !!emp);
-    if (EMPLOYEES.length > 0) console.log('First emp:', EMPLOYEES[0].last, '|', EMPLOYEES[0].pin, '| types:', typeof EMPLOYEES[0].last, typeof EMPLOYEES[0].pin);
     if (!emp) {
       hideLoading();
       err.innerHTML = 'Last name or PIN not recognized. Please try again.';
@@ -1136,6 +1133,8 @@ async function doLogin() {
     initState(emp);
     const punches = await loadTodayPunches(emp.id);
     restoreStateFromPunches(emp.id, punches);
+    // Mark any approved time off whose end date has passed as 'used' and deduct accruals
+    await api('markTimeOffUsed', {}, {}).catch(e => console.warn('markTimeOffUsed:', e.message));
     await api('checkSickAccrual',{},{empId:emp.id,empType:emp.empType||'part-time'}).then(r=>{
       if(r.accrued) setTimeout(()=>toast((emp.empType==='full-time'||String(emp.empType).toLowerCase()==='full-time'?'7':'25')+' sick hours added — auto accrual'),800);
     }).catch(e=>console.warn('Sick accrual check skipped:', e.message));
