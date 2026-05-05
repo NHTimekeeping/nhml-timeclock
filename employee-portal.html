@@ -1348,14 +1348,14 @@ function updateAmountOptions() {
   let opts = [], noteText = '';
   if (type === 'Sick time') {
     opts = [
-      {v:'1',   l:'1 hour'},
-      {v:'2',   l:'2 hours'},
-      {v:'3',   l:'3 hours'},
-      {v:'3.5', l:'3.5 hours (half day)'},
-      {v:'4',   l:'4 hours'},
-      {v:'5',   l:'5 hours'},
-      {v:'6',   l:'6 hours'},
-      {v:'7',   l:'7 hours (full day)'},
+      {v:'1 hour (0.14)',    l:'1 hour'},
+      {v:'2 hours (0.29)',   l:'2 hours'},
+      {v:'3 hours (0.43)',   l:'3 hours'},
+      {v:'Half day (0.50)',  l:'Half day'},
+      {v:'4 hours (0.57)',   l:'4 hours'},
+      {v:'5 hours (0.71)',   l:'5 hours'},
+      {v:'6 hours (0.86)',   l:'6 hours'},
+      {v:'Full day (1.00)',  l:'Full day'},
     ];
     noteText = 'Sick time is taken in hourly increments.';
   } else if (type === 'Leave without pay') {
@@ -1744,21 +1744,25 @@ async function renderWeekHistory() {
             workedMins = Math.round((Date.now() - inMs) / 60000);
           }
 
-          const h = Math.floor(workedMins/60);
-          const m = workedMins % 60;
+          // Round raw minutes to tenths per the official shift rounding table.
+          // Daily display and weekly totals use tenths; raw punch times are unchanged.
+          const workedTenths = minsToTenthsShift(workedMins % 60) + Math.floor(workedMins / 60);
+          const tH = Math.floor(workedTenths);
+          const tM = Math.round((workedTenths - tH) * 60);
           const meal = mOut ? cleanTime(mOut.time)+(mIn?'–'+cleanTime(mIn.time):'–ongoing') : '—';
 
           weekDays.push({
-            date:      dateKey,
-            dayName:   dt.toLocaleDateString('en-US',{weekday:'short'}),
-            dateLabel: dt.toLocaleDateString('en-US',{month:'short',day:'numeric'}),
-            punchIn:   pIn  ? cleanTime(pIn.time)  : '—',
-            punchOut:  pOut ? cleanTime(pOut.time) : (w===0&&pIn?'In progress':'—'),
+            date:         dateKey,
+            dayName:      dt.toLocaleDateString('en-US',{weekday:'short'}),
+            dateLabel:    dt.toLocaleDateString('en-US',{month:'short',day:'numeric'}),
+            punchIn:      pIn  ? cleanTime(pIn.time)  : '—',
+            punchOut:     pOut ? cleanTime(pOut.time) : (w===0&&pIn?'In progress':'—'),
             meal,
-            worked:    h+':'+String(m).padStart(2,'0'),
-            workedMins,
-            isLate:    String(pIn?.isLate||'').toLowerCase()==='true',
-            minsLate:  +pIn?.minsLate || 0,
+            workedMins,                                      // raw, for reference only
+            workedTenths,                                    // rounded — used for all totals
+            worked:       tH+':'+String(tM).padStart(2,'0'),// display from tenths
+            isLate:       String(pIn?.isLate||'').toLowerCase()==='true',
+            minsLate:     +pIn?.minsLate || 0,
           });
         }
         if (weekDays.length) weeks.push(weekDays);
@@ -1788,19 +1792,33 @@ async function renderWeekHistory() {
   document.getElementById('nextWeekBtn').disabled   = offset === 0;
   document.getElementById('nextWeekBtn').style.opacity = offset === 0 ? '0.4' : '1';
 
-  let totalMins=0, otMins=0, lateCount=0;
+  const emp = ge();
+  const isFT = String(emp?.empType||'').toLowerCase() === 'full-time';
+  const OT_THRESHOLD = 35;   // FT scheduled hours per week
+  const OT_MIN_EXCESS = 1.0; // OT only counts when excess is at least 1 full hour
+
+  let totalTenths = 0, lateCount = 0;
   week.forEach(d => {
-    totalMins += d.workedMins;
-    if (d.workedMins > 420) otMins += (d.workedMins - 420);
+    totalTenths = parseFloat((totalTenths + (d.workedTenths||0)).toFixed(1));
     if (d.isLate) lateCount++;
   });
-  const totalH = Math.floor(totalMins/60)+':'+String(totalMins%60).padStart(2,'0');
-  const otH    = Math.floor(otMins/60)+':'+String(otMins%60).padStart(2,'0');
+
+  // OT: FT only. Excess must be ≥ 1h — e.g. 35.2h has no OT, 36.0h has 1.0h OT.
+  const otTenths = (isFT && totalTenths >= OT_THRESHOLD + OT_MIN_EXCESS)
+    ? parseFloat((totalTenths - OT_THRESHOLD).toFixed(1))
+    : 0;
+
+  // Format tenths as H:MM for display
+  function fmtTenths(t) {
+    const h = Math.floor(t);
+    const m = Math.round((t - h) * 60);
+    return h + ':' + String(m).padStart(2,'0');
+  }
 
   if (summaryEl) summaryEl.innerHTML = `
     <div class="wsm-cell"><div class="wsm-lbl">Days</div><div class="wsm-val">${week.length}</div></div>
-    <div class="wsm-cell"><div class="wsm-lbl">Total hrs</div><div class="wsm-val">${totalH}</div></div>
-    <div class="wsm-cell"><div class="wsm-lbl">Overtime</div><div class="wsm-val" style="color:${otMins>0?'#b84000':'var(--ink3)'};">${otH}</div></div>
+    <div class="wsm-cell"><div class="wsm-lbl">Total hrs</div><div class="wsm-val">${fmtTenths(totalTenths)}</div></div>
+    <div class="wsm-cell"><div class="wsm-lbl">Overtime</div><div class="wsm-val" style="color:${otTenths>0?'#b84000':'var(--ink3)'};">${otTenths>0?fmtTenths(otTenths):'—'}</div></div>
     <div class="wsm-cell"><div class="wsm-lbl">Late arrivals</div><div class="wsm-val" style="color:${lateCount>0?'#b91c1c':'var(--ink3)'};">${lateCount}</div></div>`;
 
   logEl.innerHTML = `<table class="log-table">
@@ -1923,7 +1941,7 @@ async function renderAccruals() {
         <div class="accrual-name">${t.label}</div>
         <div style="font-size:12px;color:#444440;margin-top:3px;">${a.events>0?`${a.events} occurrence${a.events>1?'s':''} this year`:'No occurrences this year'}</div>
       </div>
-      <div class="accrual-nums"><strong style="color:${t.color};">${a.used} day${a.used!==1?'s':''}</strong> used this year</div>
+      <div class="accrual-nums"><strong style="color:${t.color};">${a.used}h</strong> used this year</div>
     </div>`;
   }).join('');
 
@@ -1952,7 +1970,7 @@ async function renderAccruals() {
     </tr>` +
     specialTypes.map(t => {
       const a = acc[t.key]||{used:0,events:0};
-      return `<tr><td>${t.label}</td><td style="font-size:11px;color:#444440;">FT only</td><td colspan="3" style="color:#444440;">${a.used||0} day${(a.used||0)!==1?'s':''} · ${a.events||0} occurrence${(a.events||0)!==1?'s':''}</td></tr>`;
+      return `<tr><td>${t.label}</td><td style="font-size:11px;color:#444440;">FT only</td><td colspan="3" style="color:#444440;">${a.used||0}h · ${a.events||0} occurrence${(a.events||0)!==1?'s':''}</td></tr>`;
     }).join('') +
     `</tbody>`;
 }
