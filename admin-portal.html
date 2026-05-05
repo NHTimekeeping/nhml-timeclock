@@ -821,21 +821,108 @@ function showLoading(msg='Loading…') {
 function hideLoading() { const el=document.getElementById('_ld'); if(el) el.style.display='none'; }
 
 // ── API wrappers ──
-async function loadEmployees()          { return (await api('getEmployees')).data||[]; }
-async function saveEmployeeToSheet(emp) { return api('saveEmployee',{},{employee:emp}); }
-async function deleteEmpFromSheet(id)   { return api('deleteEmployee',{},{empId:id}); }
-async function loadAllPunchesAsMap()    { const arr=(await api('getAllPunches')).data||[]; const m={}; arr.forEach(p=>{if(!m[p.empId])m[p.empId]=[];m[p.empId].push(p);}); return m; }
-async function loadAccruals(empId)      { return (await api('getAccruals',empId?{empId}:{})).data||{}; }
-async function saveAccrualsToSheet(empId,acc){ return api('saveAccruals',{},{empId,accruals:acc}); }
-async function loadAllTimeOff()         { return (await api('getAllTimeOff')).data||[]; }
-async function decideTimeOffAPI(id,dec) { return api('decideTimeOff',{},{requestId:id,decision:dec}); }
-async function loadAllAdjustments()     { return (await api('getAdjustments')).data||[]; }
-async function postAdjustmentAPI(adj)   { return api('postAdjustment',{},{adjustment:adj}); }
-async function loadExportLog()          { return (await api('getExportLog')).data||[]; }
-async function logExportToSheet(t,p,c)  { return api('logExport',{},{type:t,period:p,recordCount:c}); }
-async function clearExportLogSheet()    { return api('clearExportLog',{},{}); }
-async function loadPNW(empId)           { return (await api('getPaidNonWorked',empId?{empId}:{})).data||[]; }
-async function postPNW(rec)             { return api('postPaidNonWorked',{},{record:rec}); }
+// ════════════════════════════════════════
+//  DATA CACHE — loads everything once on login
+//  Tabs read from cache instantly (no API calls)
+//  Call invalidateCache(key) after any mutation
+// ════════════════════════════════════════
+const _cache = {};
+const _cacheTime = {};
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes stale threshold
+
+async function cached(key, fetcher) {
+  const now = Date.now();
+  if (_cache[key] && (now - (_cacheTime[key]||0)) < CACHE_TTL) return _cache[key];
+  _cache[key] = await fetcher();
+  _cacheTime[key] = now;
+  return _cache[key];
+}
+function invalidateCache(...keys) {
+  if (keys.length === 0) Object.keys(_cache).forEach(k => delete _cache[k]);
+  else keys.forEach(k => delete _cache[k]);
+}
+
+// Preload all data in parallel on login
+async function preloadAllData() {
+  const [emps, punches, timeoff, adjs, acc] = await Promise.all([
+    api('getEmployees').then(r=>r.data||[]),
+    api('getAllPunches').then(r=>r.data||[]),
+    api('getAllTimeOff').then(r=>r.data||[]),
+    api('getAdjustments').then(r=>r.data||[]),
+    api('getAccruals',{}).then(r=>r.data||{}),
+  ]);
+  _cache['employees']   = emps;
+  _cache['punches']     = punches;
+  _cache['timeoff']     = timeoff;
+  _cache['adjustments'] = adjs;
+  _cache['accruals']    = acc;
+  Object.keys(_cache).forEach(k => _cacheTime[k] = Date.now());
+  console.log(`Cache loaded: ${emps.length} emps, ${punches.length} punches, ${timeoff.length} timeoff, ${adjs.length} adjs`);
+}
+
+async function loadEmployees() {
+  return cached('employees', () => api('getEmployees').then(r=>r.data||[]));
+}
+async function loadAllPunches() {
+  return cached('punches', () => api('getAllPunches').then(r=>r.data||[]));
+}
+async function loadAllPunchesAsMap() {
+  const arr = await loadAllPunches();
+  const m = {}; arr.forEach(p=>{if(!m[p.empId])m[p.empId]=[];m[p.empId].push(p);}); return m;
+}
+async function loadAccruals(empId) {
+  const all = await cached('accruals', () => api('getAccruals',{}).then(r=>r.data||{}));
+  return empId ? (all[empId]||null) : all;
+}
+async function loadAllTimeOff() {
+  return cached('timeoff', () => api('getAllTimeOff').then(r=>r.data||[]));
+}
+async function loadAllAdjustments() {
+  return cached('adjustments', () => api('getAdjustments').then(r=>r.data||[]));
+}
+async function loadExportLog() {
+  return cached('exportlog', () => api('getExportLog').then(r=>r.data||[]));
+}
+async function saveEmployeeToSheet(emp) {
+  const r = await api('saveEmployee',{},{employee:emp});
+  invalidateCache('employees');
+  return r;
+}
+async function deleteEmpFromSheet(id) {
+  const r = await api('deleteEmployee',{},{empId:id});
+  invalidateCache('employees');
+  return r;
+}
+async function saveAccrualsToSheet(empId,acc) {
+  const r = await api('saveAccruals',{},{empId,accruals:acc});
+  invalidateCache('accruals');
+  return r;
+}
+async function decideTimeOffAPI(id,dec,reason) {
+  const r = await api('decideTimeOff',{},{requestId:id,decision:dec,reason:reason||''});
+  invalidateCache('timeoff','accruals');
+  return r;
+}
+async function postAdjustmentAPI(adj) {
+  const r = await api('postAdjustment',{},{adjustment:adj});
+  invalidateCache('adjustments','accruals');
+  return r;
+}
+async function logExportToSheet(t,p,c) {
+  const r = await api('logExport',{},{type:t,period:p,recordCount:c});
+  invalidateCache('exportlog');
+  return r;
+}
+async function clearExportLogSheet() {
+  const r = await api('clearExportLog',{},{});
+  invalidateCache('exportlog');
+  return r;
+}
+async function postPNW(rec) {
+  const r = await api('postPaidNonWorked',{},{record:rec});
+  invalidateCache('punches');
+  return r;
+}
 
 function fmt12(h,m) {
   const ap = h<12?'AM':'PM';
@@ -894,7 +981,10 @@ document.addEventListener('DOMContentLoaded', () => {
 //  INIT
 // ════════════════════════════════════════
 async function initAdmin() {
-  showLoading('Connecting…');
+  showLoading('Loading data…');
+  try {
+    await preloadAllData(); // single parallel batch load
+  } catch(e) { console.warn('Preload error:', e.message); }
   try { await renderStats(); } catch(e) { console.warn('renderStats:', e.message); }
   try { await renderEmpTable(); } catch(e) { console.warn('renderEmpTable:', e.message); }
   try { await populateEmpSelectors(); } catch(e) { console.warn('populateEmpSelectors:', e.message); }
@@ -903,15 +993,18 @@ async function initAdmin() {
   try { await updatePendingBadge(); } catch(e) { console.warn('pendingBadge:', e.message); }
   hideLoading();
 
-  // Poll every 45 seconds for new time-off requests
+  // Poll every 45s — only fetches timeoff (lightweight)
   if (window._pollTimer) clearInterval(window._pollTimer);
   window._pollTimer = setInterval(async () => {
-    try { await updatePendingBadge(); } catch(e) {}
-    // If Time Off tab is open, auto-refresh it
-    const toTab = document.getElementById('tab-timeoff');
-    if (toTab && toTab.classList.contains('active')) {
-      try { await renderTimeOffAdmin(); } catch(e) {}
-    }
+    try {
+      // Refresh only timeoff cache on poll
+      invalidateCache('timeoff');
+      await updatePendingBadge();
+      const toTab = document.getElementById('tab-timeoff');
+      if (toTab && toTab.classList.contains('active')) {
+        await renderTimeOffAdmin();
+      }
+    } catch(e) {}
   }, 45000);
 }
 
@@ -1029,6 +1122,7 @@ async function saveEmployee() {
   showLoading('Saving…');
   try {
     await saveEmployeeToSheet({id,first,last,dept,pin,empType,status});
+    invalidateCache('employees');
     closeModal('modalEmp');
     toast(_editingEmpId ? 'Employee updated' : 'Employee added');
     await renderEmpTable(); await populateEmpSelectors(); await renderStats();
@@ -1147,12 +1241,14 @@ async function savePunchEdit() {
   };
   showLoading('Saving…');
   await api('updatePunch',{},{punch});
+  invalidateCache('punches');
   hideLoading(); closeModal('modalPunch'); renderPunchLog(); renderStats(); toast('Punch updated');
 }
 async function deletePunchEntry() {
   if (!_editingPunch||!confirm('Delete this punch entry?')) return;
   showLoading('Deleting…');
   await api('deletePunch',{},{punchId:_editingPunch.punchId});
+  invalidateCache('punches');
   hideLoading(); closeModal('modalPunch'); renderPunchLog(); renderStats(); toast('Punch deleted');
 }
 
