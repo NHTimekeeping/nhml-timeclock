@@ -1320,8 +1320,7 @@ async function renderYTDSummary() {
         html += `<div style="padding:1rem 0;font-size:13px;color:var(--ink3);">No accrual data found for this employee.</div>`;
       } else {
         TYPES.forEach(t => {
-          const a = acc[t.key] || {bal:0, max:0, used:0};
-          const pct = (t.key==='lwop') ? 0 : a.max>0 ? Math.min(100, Math.round(a.used/a.max*100)) : 0;
+          const a = acc[t.key] || {bal:0, used:0};
           const usedColor = t.warn && a.used > 0 ? '#b84000' : t.color;
           const balTxt = t.key==='sick' ? `${a.bal}h available` : t.key==='lwop' ? '—' : `${a.bal} days left`;
           html += `<div class="accrual-row">
@@ -1329,7 +1328,6 @@ async function renderYTDSummary() {
             <div class="accrual-info">
               <div class="accrual-name">${t.label}</div>
               <div class="accrual-note">${t.note}</div>
-              ${t.key!=='lwop'&&a.max>0?`<div class="accrual-bar"><div class="accrual-fill" style="width:${pct}%;background:${t.color};"></div></div>`:''}
             </div>
             <div class="accrual-nums">
               <strong style="color:${usedColor};">${a.used} ${t.unit} used</strong>
@@ -1513,12 +1511,26 @@ async function renderTimeOffAdmin() {
       <td>${isPending?`<div style="display:flex;gap:5px;">
         <button class="btn btn-green btn-sm" onclick="decideTimeOff('${rid}','approved')">✓ Approve</button>
         <button class="btn btn-red btn-sm" onclick="openDenyModal('${rid}','${name} · ${type} · ${start}${end&&end!==start?' – '+end:''}')">✕ Deny</button>
-      </div>`:`<span style="font-size:12px;color:var(--ink3);">${decided?new Date(decided).toLocaleDateString('en-US',{month:'short',day:'numeric'}):''}</span>`}</td>
+      </div>`:status==='approved'&&start>new Date().toISOString().slice(0,10)?`<button class="btn btn-ghost btn-sm" onclick="cancelTimeOffAdmin('${rid}')">Cancel</button>`:`<span style="font-size:12px;color:var(--ink3);">${decided?new Date(decided).toLocaleDateString('en-US',{month:'short',day:'numeric'}):''}</span>`}</td>
     </tr>`;
   }).join('') : `<tr><td colspan="8"><div class="empty">No time off requests.</div></td></tr>`;
   updatePendingBadge();
 }
-let _denyRequestId = null;
+async function cancelTimeOffAdmin(requestId) {
+  if (!confirm('Cancel this time off request? If approved, accruals will be restored.')) return;
+  showLoading('Cancelling…');
+  try {
+    await api('cancelTimeOff',{},{requestId});
+    invalidateCache('timeoff','accruals');
+    hideLoading();
+    renderTimeOffAdmin();
+    updatePendingBadge();
+    toast('Request cancelled');
+  } catch(e) {
+    hideLoading();
+    toast('Could not cancel: '+e.message);
+  }
+}
 function openDenyModal(requestId, summary) {
   _denyRequestId = requestId;
   document.getElementById('denyRequestSummary').textContent = summary;
