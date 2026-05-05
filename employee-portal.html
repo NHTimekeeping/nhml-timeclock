@@ -941,20 +941,22 @@ function restoreStateFromPunches(empId, punches) {
   const st  = STATE[empId];
   const today = new Date().toISOString().slice(0,10);
   const ep  = punches.filter(p=>p.date===today);
-  st.log    = ep.map(p=>({...p, rawTime: p.time ? fmtTime(new Date(p.date+'T'+p.time)) : '—'}));
+  st.log    = ep.map(p=>({...p, rawTime: cleanTime(p.time)}));
   if (ep.some(p=>p.event==='Meal Break In')) st.mealUsed = true;
   let workedMs=0, lastIn=null;
   ep.slice().reverse().forEach(p=>{
-    if (p.event==='Punch In'||p.event==='Meal Break In') lastIn=new Date(p.date+'T'+p.time);
-    if ((p.event==='Punch Out'||p.event==='Meal Break Out')&&lastIn){ workedMs+=new Date(p.date+'T'+p.time)-lastIn; lastIn=null; }
+    const t = cleanDate(p.date)+'T'+cleanTimeRaw(p.time);
+    if (p.event==='Punch In'||p.event==='Meal Break In') lastIn=new Date(t);
+    if ((p.event==='Punch Out'||p.event==='Meal Break Out')&&lastIn){ workedMs+=new Date(t)-lastIn; lastIn=null; }
   });
   st.workedMs = workedMs;
   const last = ep[ep.length-1];
   if (last) {
-    if (last.event==='Punch In') { st.status='in'; st.punchInTime=new Date(last.date+'T'+last.time); }
+    const lastT = cleanDate(last.date)+'T'+cleanTimeRaw(last.time);
+    if (last.event==='Punch In') { st.status='in'; st.punchInTime=new Date(lastT); }
     else if (last.event==='Punch Out') st.status='out';
-    else if (last.event==='Meal Break Out') { st.status='meal-out'; st.mealStart=new Date(last.date+'T'+last.time); st.mealAllowedMins=+last.mealAllowedMins||60; }
-    else if (last.event==='Meal Break In') { st.status='in'; st.punchInTime=new Date(last.date+'T'+last.time); }
+    else if (last.event==='Meal Break Out') { st.status='meal-out'; st.mealStart=new Date(lastT); st.mealAllowedMins=+last.mealAllowedMins||60; }
+    else if (last.event==='Meal Break In') { st.status='in'; st.punchInTime=new Date(lastT); }
   }
 }
 
@@ -971,6 +973,47 @@ function fmtHM(ms) {
 function decToHM(h) {
   const tot = Math.round(h*60);
   return Math.floor(tot/60)+':'+String(tot%60).padStart(2,'0');
+}
+
+// ── Clean time/date values from Google Sheets ──
+// Sheets sometimes returns times as '1899-12-30T15:34:00.000Z' or '15:34:00'
+// and dates as '2026-05-04T00:00:00.000Z'
+function cleanTime(val) {
+  if (!val || val === '') return '—';
+  const s = String(val);
+  // ISO datetime — extract time part
+  if (s.includes('T')) {
+    const parts = s.split('T');
+    const timePart = parts[1] ? parts[1].replace('Z','').slice(0,5) : '';
+    if (timePart) {
+      const [hh,mm] = timePart.split(':').map(Number);
+      return fmt12(hh, mm || 0);
+    }
+  }
+  // HH:MM or HH:MM:SS
+  if (s.match(/^\d{1,2}:\d{2}/)) {
+    const [hh,mm] = s.split(':').map(Number);
+    return fmt12(hh, mm || 0);
+  }
+  return s;
+}
+function cleanDate(val) {
+  if (!val||val==='') return '—';
+  const s = String(val);
+  if (s.includes('T')) return s.slice(0,10);
+  if (s.match(/^\d{4}-\d{2}-\d{2}/)) return s.slice(0,10);
+  return s;
+}
+// Returns HH:MM for use in new Date(date+'T'+time) constructions
+function cleanTimeRaw(val) {
+  if (!val||val==='') return '00:00';
+  const s = String(val);
+  if (s.includes('T')) {
+    const t = s.split('T')[1]||'';
+    return t.replace('Z','').slice(0,5) || '00:00';
+  }
+  if (s.match(/^\d{1,2}:\d{2}/)) return s.slice(0,5).padStart(5,'0');
+  return '00:00';
 }
 
 // ── Persist a punch to Google Sheets (fire-and-forget) ──
@@ -1624,24 +1667,30 @@ async function renderWeekHistory() {
     logEl.innerHTML = '<div class="empty-state">Loading history…</div>';
     try {
       const r = await api('getAllPunches', {empId: currentEmpId});
-      const punches = (r.data || []).filter(p => !p.isAdjustment && p.date && p.time);
+      const punches = (r.data || []).filter(p => !p.isAdjustment && p.date);
 
-      // Group by week (Mon–Sat)
+      // Group by date — use cleanDate to normalize ISO date strings
       const byDate = {};
       punches.forEach(p => {
-        if (!byDate[p.date]) byDate[p.date] = [];
-        byDate[p.date].push(p);
+        const d = cleanDate(p.date);
+        if (!byDate[d]) byDate[d] = [];
+        byDate[d].push(p);
       });
 
-      // Build week buckets going back from today
+      // Build week buckets — w=0 is current week, w=1 is last week, etc.
       const weeks = [];
       const today = new Date();
-      for (let w = 1; w <= 8; w++) {
+      const todayDay = today.getDay();
+      const thisMonday = new Date(today);
+      thisMonday.setDate(today.getDate() - (todayDay === 0 ? 6 : todayDay - 1));
+      thisMonday.setHours(0,0,0,0);
+
+      for (let w = 0; w <= 8; w++) {
         const weekDays = [];
-        for (let d = 0; d < 6; d++) {
-          const dt = new Date(today);
-          dt.setDate(today.getDate() - (w * 7) + d - today.getDay() + 1);
-          if (dt.getDay() === 0) continue; // skip Sunday
+        for (let d = 0; d < 6; d++) { // Mon(0)–Sat(5)
+          const dt = new Date(thisMonday);
+          dt.setDate(thisMonday.getDate() - (w * 7) + d);
+          if (dt > today) continue; // skip future
           const dateKey = dt.toISOString().slice(0,10);
           const dp = byDate[dateKey] || [];
           const pIn   = dp.find(p=>p.event==='Punch In');
@@ -1649,30 +1698,36 @@ async function renderWeekHistory() {
           const mOut  = dp.find(p=>p.event==='Meal Break Out');
           const mIn   = dp.find(p=>p.event==='Meal Break In');
           if (!pIn && !pOut) continue;
-          // Calculate hours
+
           let workedMins = 0;
           if (pIn && pOut) {
-            const inMs  = new Date(dateKey+'T'+pIn.time) - 0;
-            const outMs = new Date(dateKey+'T'+pOut.time) - 0;
+            const inMs  = new Date(dateKey+'T'+cleanTimeRaw(pIn.time)) - 0;
+            const outMs = new Date(dateKey+'T'+cleanTimeRaw(pOut.time)) - 0;
             const mealMs = (mOut && mIn)
-              ? (new Date(dateKey+'T'+mIn.time) - new Date(dateKey+'T'+mOut.time))
+              ? (new Date(dateKey+'T'+cleanTimeRaw(mIn.time)) - new Date(dateKey+'T'+cleanTimeRaw(mOut.time)))
               : 0;
-            workedMins = Math.round((outMs - inMs - mealMs) / 60000);
+            workedMins = Math.max(0, Math.round((outMs - inMs - mealMs) / 60000));
+          } else if (pIn && !pOut && w === 0) {
+            // Still clocked in today
+            const inMs = new Date(dateKey+'T'+cleanTimeRaw(pIn.time)) - 0;
+            workedMins = Math.round((Date.now() - inMs) / 60000);
           }
+
           const h = Math.floor(workedMins/60);
           const m = workedMins % 60;
+          const meal = mOut ? cleanTime(mOut.time)+(mIn?'–'+cleanTime(mIn.time):'–ongoing') : '—';
+
           weekDays.push({
-            date:     dt.toLocaleDateString('en-US',{month:'short',day:'numeric'}),
-            dayName:  dt.toLocaleDateString('en-US',{weekday:'short'}),
-            punchIn:  pIn  ? pIn.time  : '—',
-            punchOut: pOut ? pOut.time : '—',
-            lunchOut: mOut ? mOut.time : '—',
-            lunchIn:  mIn  ? mIn.time  : '—',
-            worked:   `${h}:${String(m).padStart(2,'0')}`,
+            date:      dateKey,
+            dayName:   dt.toLocaleDateString('en-US',{weekday:'short'}),
+            dateLabel: dt.toLocaleDateString('en-US',{month:'short',day:'numeric'}),
+            punchIn:   pIn  ? cleanTime(pIn.time)  : '—',
+            punchOut:  pOut ? cleanTime(pOut.time) : (w===0&&pIn?'In progress':'—'),
+            meal,
+            worked:    h+':'+String(m).padStart(2,'0'),
             workedMins,
-            isLate:   String(pIn?.isLate)==='true',
-            minsLate: pIn?.minsLate || 0,
-            adj:      '—',
+            isLate:    String(pIn?.isLate||'').toLowerCase()==='true',
+            minsLate:  +pIn?.minsLate || 0,
           });
         }
         if (weekDays.length) weeks.push(weekDays);
@@ -1696,8 +1751,8 @@ async function renderWeekHistory() {
   const week = hist[offset];
 
   document.getElementById('weekLabel').textContent =
-    offset === 0 ? 'Last week' :
-    offset === 1 ? '2 weeks ago' :
+    offset === 0 ? 'This week' :
+    offset === 1 ? 'Last week' :
     offset + ' weeks ago';
   document.getElementById('nextWeekBtn').disabled   = offset === 0;
   document.getElementById('nextWeekBtn').style.opacity = offset === 0 ? '0.4' : '1';
@@ -1705,7 +1760,7 @@ async function renderWeekHistory() {
   let totalMins=0, otMins=0, lateCount=0;
   week.forEach(d => {
     totalMins += d.workedMins;
-    if (d.workedMins > 420) otMins += (d.workedMins - 420); // 35h/week = 7h/day
+    if (d.workedMins > 420) otMins += (d.workedMins - 420);
     if (d.isLate) lateCount++;
   });
   const totalH = Math.floor(totalMins/60)+':'+String(totalMins%60).padStart(2,'0');
@@ -1723,11 +1778,10 @@ async function renderWeekHistory() {
     week.map(d => {
       const late = d.isLate ? `<span class="late-badge">+${d.minsLate}m</span>` : '';
       const inStyle = d.isLate ? 'style="color:#b91c1c;font-weight:700;"' : '';
-      const meal = d.lunchOut !== '—' ? `${d.lunchOut}–${d.lunchIn}` : '—';
       return `<tr>
-        <td style="color:#444440;">${d.dayName} ${d.date}</td>
+        <td style="color:#444440;">${d.dayName} ${d.dateLabel||d.date}</td>
         <td ${inStyle}>${d.punchIn}${late}</td>
-        <td style="color:#28749A;">${meal}</td>
+        <td style="color:#28749A;">${d.meal||'—'}</td>
         <td class="event-out">${d.punchOut}</td>
         <td style="font-weight:500;">${d.worked}</td>
       </tr>`;
