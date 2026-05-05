@@ -805,6 +805,29 @@ async function clearExportLogSheet()    { return api('clearExportLog',{},{}); }
 async function loadPNW(empId)           { return (await api('getPaidNonWorked',empId?{empId}:{})).data||[]; }
 async function postPNW(rec)             { return api('postPaidNonWorked',{},{record:rec}); }
 
+function fmt12(h,m) {
+  const ap = h<12?'AM':'PM';
+  return (h%12||12)+':'+String(m).padStart(2,'0')+' '+ap;
+}
+function cleanTime(val) {
+  if (!val || val==='') return '—';
+  const s = String(val);
+  if (s.includes('T')) {
+    const t = s.split('T')[1]||'';
+    const clean = t.replace('Z','').slice(0,5);
+    if (clean) { const [hh,mm]=clean.split(':').map(Number); return fmt12(hh,mm||0); }
+  }
+  if (s.match(/^\d{1,2}:\d{2}/)) { const [hh,mm]=s.split(':').map(Number); return fmt12(hh,mm||0); }
+  return s;
+}
+function cleanDate(val) {
+  if (!val||val==='') return '—';
+  const s = String(val);
+  if (s.includes('T')) return s.slice(0,10);
+  if (s.match(/^\d{4}-\d{2}-\d{2}/)) return s.slice(0,10);
+  return s;
+}
+
 // ════════════════════════════════════════
 //  LOGIN
 // ════════════════════════════════════════
@@ -1052,13 +1075,13 @@ async function renderPunchLog() {
       rows.push({emp,p,i});
     });
   });
-  rows.sort((a,b)=>(b.p.date+b.p.time).localeCompare(a.p.date+a.p.time));
+  rows.sort((a,b)=>(cleanDate(b.p.date)+cleanTime(b.p.time)).localeCompare(cleanDate(a.p.date)+cleanTime(a.p.time)));
   const evtColor={'Punch In':'#2d7a4d','Punch Out':'#444440','Meal Break Out':'#28749A','Meal Break In':'#28749A'};
   document.getElementById('punchTbody').innerHTML = rows.length ? rows.map(({emp,p,i})=>`<tr>
     <td>${emp.last}, ${emp.first[0]}.</td>
     <td style="color:${evtColor[p.event]||'#444'};font-weight:500;">${p.event}${String(p.isLate)==='true'?'<span class="pill pill-late" style="margin-left:6px;">LATE</span>':''}</td>
-    <td>${p.time||'—'}</td>
-    <td style="color:var(--ink3);">${p.date||'—'}</td>
+    <td>${cleanTime(p.time)}</td>
+    <td style="color:var(--ink3);">${cleanDate(p.date)}</td>
     <td style="font-size:12px;color:var(--ink3);">${p.note||''}</td>
     <td><button class="btn btn-ghost btn-sm" onclick="openPunchEdit('${emp.id}','${p.punchId||i}')">Edit</button></td>
   </tr>`).join('') : `<tr><td colspan="6"><div class="empty">No punch records found.</div></td></tr>`;
