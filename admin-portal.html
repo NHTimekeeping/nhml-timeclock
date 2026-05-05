@@ -1345,7 +1345,7 @@ async function renderYTDSummary() {
               <div class="accrual-note">${a.events>0?`${a.events} occurrence${a.events!==1?'s':''} this year`:'No occurrences this year'}</div>
             </div>
             <div class="accrual-nums">
-              <strong style="color:${t.color};">${a.used}h</strong>
+              <strong style="color:${t.color};">${a.used} day${a.used!==1?'s':''}</strong>
               used this year
             </div>
           </div>`;
@@ -1380,7 +1380,7 @@ async function renderAccrualEditor() {
   }
   if (!acc) { body.innerHTML='<div class="empty">No accrual data found for this employee.</div>'; return; }
   const empName = emp ? emp.first+' '+emp.last : empId;
-  const SICK_TABLE=[{label:'1 hour',val:0.14},{label:'2 hours',val:0.29},{label:'3 hours',val:0.43},{label:'Half day',val:0.50},{label:'4 hours',val:0.57},{label:'5 hours',val:0.71},{label:'6 hours',val:0.86},{label:'Full day',val:1.00}];
+  const SICK_TABLE=[{label:'1 hour',val:1},{label:'2 hours',val:2},{label:'3 hours',val:3},{label:'3.5 hours (half day)',val:3.5},{label:'4 hours',val:4},{label:'5 hours',val:5},{label:'6 hours',val:6},{label:'7 hours (full day)',val:7}];
   const QOPTS=[0.25,0.50,0.75,1,1.25,1.5,1.75,2,2.25,2.5,2.75,3,3.25,3.5,3.75,4,4.25,4.5,4.75,5,5.25,5.5,5.75,6,6.25,6.5,6.75,7,7.25,7.5,7.75,8];
   const qSel=(v)=>QOPTS.map(x=>`<option value="${x}" ${parseFloat(v)===x?'selected':''}>${x.toFixed(2)}</option>`).join('');
   const sickDeductOpts=SICK_TABLE.map(s=>`<option value="${s.val}">${s.label} (${s.val})</option>`).join('');
@@ -1388,26 +1388,26 @@ async function renderAccrualEditor() {
   <div style="margin-bottom:1rem;padding:10px 14px;background:#f5f3ee;border-radius:7px;border:1px solid var(--border);">
     <strong style="color:var(--ink);">${empName}</strong><span style="font-size:12px;color:var(--ink3);margin-left:8px;">${emp?emp.dept:''} · ${emp?emp.empType:''}</span>
   </div>
-  <div class="section-title">Sick Time <span style="font-weight:400;color:var(--ink3);">1h=.14, 2h=.29, 3h=.43, ½day=.50, 4h=.57, 5h=.71, 6h=.86</span></div>
+  <div class="section-title">Sick Time <span style="font-weight:400;color:var(--ink3);">hours — 1h, 2h, 3h, 3.5h, 4h, 5h, 6h, 7h</span></div>
   <div class="acc-grid" style="margin-bottom:1rem;">
-    <div class="acc-card"><div class="acc-card-lbl">Balance (hours)</div><input type="number" step="0.01" id="acc_sick_bal" value="${acc.sick?.bal||0}"></div>
+    <div class="acc-card"><div class="acc-card-lbl">Balance (hours)</div><input type="number" step="0.5" id="acc_sick_bal" value="${acc.sick?.bal||0}"></div>
     <div class="acc-card"><div class="acc-card-lbl">Deduct used time</div><select id="acc_sick_deduct"><option value="">— select —</option>${sickDeductOpts}</select>
-    <div style="font-size:11px;color:var(--ink3);margin-top:4px;">Used YTD: <strong>${acc.sick?.used||0}</strong></div></div>
+    <div style="font-size:11px;color:var(--ink3);margin-top:4px;">Used YTD: <strong>${acc.sick?.used||0}h</strong></div></div>
   </div>
-  <div class="section-title">Vacation <span style="font-weight:400;color:var(--ink3);">¼, ½, ¾, full day increments</span></div>
+  <div class="section-title">Vacation <span style="font-weight:400;color:var(--ink3);">days — ¼, ½, ¾, full day</span></div>
   <div class="acc-grid" style="margin-bottom:1rem;">
-    <div class="acc-card"><div class="acc-card-lbl">Balance</div><select id="acc_vacation_bal">${qSel(acc.vacation?.bal||0)}</select></div>
-    <div class="acc-card"><div class="acc-card-lbl">Used YTD</div><select id="acc_vacation_used">${qSel(acc.vacation?.used||0)}</select></div>
+    <div class="acc-card"><div class="acc-card-lbl">Balance (days)</div><select id="acc_vacation_bal">${qSel(acc.vacation?.bal||0)}</select></div>
+    <div class="acc-card"><div class="acc-card-lbl">Used YTD (days)</div><select id="acc_vacation_used">${qSel(acc.vacation?.used||0)}</select></div>
   </div>
-  <div class="section-title">Personal Time <span style="font-weight:400;color:var(--ink3);">¼, ½, ¾, full day</span></div>
+  <div class="section-title">Personal Time <span style="font-weight:400;color:var(--ink3);">days — ¼, ½, ¾, full day</span></div>
   <div class="acc-grid" style="margin-bottom:1rem;">
-    <div class="acc-card"><div class="acc-card-lbl">Balance</div><select id="acc_personal_bal">${qSel(acc.personal?.bal||0)}</select></div>
-    <div class="acc-card"><div class="acc-card-lbl">Used YTD</div><select id="acc_personal_used">${qSel(acc.personal?.used||0)}</select></div>
+    <div class="acc-card"><div class="acc-card-lbl">Balance (days)</div><select id="acc_personal_bal">${qSel(acc.personal?.bal||0)}</select></div>
+    <div class="acc-card"><div class="acc-card-lbl">Used YTD (days)</div><select id="acc_personal_used">${qSel(acc.personal?.used||0)}</select></div>
   </div>
-  <div class="section-title">Floating Holiday <span style="font-weight:400;color:var(--ink3);">¼, ½, ¾, full day</span></div>
+  <div class="section-title">Floating Holiday <span style="font-weight:400;color:var(--ink3);">days — ¼, ½, ¾, full day</span></div>
   <div class="acc-grid" style="margin-bottom:1rem;">
-    <div class="acc-card"><div class="acc-card-lbl">Balance</div><select id="acc_floatHoliday_bal">${qSel(acc.floatHoliday?.bal||0)}</select></div>
-    <div class="acc-card"><div class="acc-card-lbl">Used YTD</div><select id="acc_floatHoliday_used">${qSel(acc.floatHoliday?.used||0)}</select></div>
+    <div class="acc-card"><div class="acc-card-lbl">Balance (days)</div><select id="acc_floatHoliday_bal">${qSel(acc.floatHoliday?.bal||0)}</select></div>
+    <div class="acc-card"><div class="acc-card-lbl">Used YTD (days)</div><select id="acc_floatHoliday_used">${qSel(acc.floatHoliday?.used||0)}</select></div>
   </div>
   <div class="section-title">Leave Without Pay <span style="font-weight:400;color:var(--ink3);">no accrual — enter hours directly</span></div>
   <div class="acc-grid" style="margin-bottom:1rem;">
@@ -1416,10 +1416,10 @@ async function renderAccrualEditor() {
   <div class="section-title">Special Leave</div>
   <div class="acc-grid" style="margin-bottom:1.5rem;">
     <div class="acc-card"><div class="acc-card-lbl">⚖️ Jury Duty (FT only)</div>
-      <div style="display:flex;gap:6px;"><div style="flex:1;"><label style="font-size:11px;color:var(--ink3);">Hours used</label><input type="number" step="0.5" id="acc_jury_used" value="${acc.jury?.used||0}"></div>
+      <div style="display:flex;gap:6px;"><div style="flex:1;"><label style="font-size:11px;color:var(--ink3);">Days used</label><input type="number" step="1" id="acc_jury_used" value="${acc.jury?.used||0}"></div>
       <div style="flex:1;"><label style="font-size:11px;color:var(--ink3);">Occurrences</label><input type="number" step="1" id="acc_jury_events" value="${acc.jury?.events||0}"></div></div></div>
     <div class="acc-card"><div class="acc-card-lbl">🕊️ Bereavement (FT only)</div>
-      <div style="display:flex;gap:6px;"><div style="flex:1;"><label style="font-size:11px;color:var(--ink3);">Hours used</label><input type="number" step="0.5" id="acc_bereavement_used" value="${acc.bereavement?.used||0}"></div>
+      <div style="display:flex;gap:6px;"><div style="flex:1;"><label style="font-size:11px;color:var(--ink3);">Days used</label><input type="number" step="1" id="acc_bereavement_used" value="${acc.bereavement?.used||0}"></div>
       <div style="flex:1;"><label style="font-size:11px;color:var(--ink3);">Occurrences</label><input type="number" step="1" id="acc_bereavement_events" value="${acc.bereavement?.events||0}"></div></div></div>
   </div>
   <div style="display:flex;gap:10px;align-items:center;">
@@ -1622,9 +1622,10 @@ async function postPaidNonWorked() {
 // ════════════════════════════════════════
 //  ADJUSTMENTS
 // ════════════════════════════════════════
-const DAY_FRACTIONS=[{label:'¼ day (1.75h)',val:'1.75'},{label:'½ day (3.5h)',val:'3.5'},{label:'¾ day (5.25h)',val:'5.25'},{label:'Full day (7h)',val:'7'}];
+const DAY_FRACTIONS=[{label:'¼ day',val:'0.25'},{label:'½ day',val:'0.5'},{label:'¾ day',val:'0.75'},{label:'Full day',val:'1'}];
 const SICK_HOURS=['1','2','3','3.5','4','5','6','7'];
-const BEREAVEMENT_HOURS=['7','14','21','28','35'];
+const BEREAVEMENT_DAYS=['1','2','3','4','5'];
+const JURY_DAYS=['1','2','3','4','5','6','7','8','9','10'];
 function updateAdjHours() {
   const type=document.getElementById('adjType')?document.getElementById('adjType').value:'';
   const empId=document.getElementById('adjEmpSel')?document.getElementById('adjEmpSel').value:'';
@@ -1633,15 +1634,19 @@ function updateAdjHours() {
   if(!sel) return;
   let opts=[], note='';
   if(['Vacation day','Personal day','Floating holiday'].includes(type)){
-    opts=DAY_FRACTIONS.map(d=>`<option value="${d.val}">${d.label}</option>`); note='¼, ½, ¾, or full day only.';
+    opts=DAY_FRACTIONS.map(d=>`<option value="${d.val}">${d.label}</option>`);
+    note='¼, ½, ¾, or full day. Stored in days.';
   } else if(type==='Sick time'){
-    opts=SICK_HOURS.map(v=>`<option value="${v}">${v} hour${v!=='1'?'s':''}</option>`); note='Hourly for all employees.';
-  } else if(type==='Bereavement (FT only)'){
-    opts=BEREAVEMENT_HOURS.map(v=>`<option value="${v}">${v}h</option>`); note='Full-time only.';
-  } else if(type==='Jury duty (FT only)'){
-    opts=['3.5','7','14','21','28','35','42','49','56','63','70'].map(v=>`<option value="${v}">${v}h</option>`); note='Full-time only — no limit.';
+    opts=SICK_HOURS.map(v=>`<option value="${v}">${v} hour${v!=='1'?'s':''}</option>`);
+    note='Hourly. Stored in hours.';
+  } else if(type==='Bereavement'){
+    opts=BEREAVEMENT_DAYS.map(v=>`<option value="${v}">${v} day${v!=='1'?'s':''}</option>`);
+    note='Full-time only. Stored in days.';
+  } else if(type==='Jury duty'){
+    opts=JURY_DAYS.map(v=>`<option value="${v}">${v} day${v!=='1'?'s':''}</option>`);
+    note='Full-time only. Full days only. Stored in days.';
   } else {
-    opts=['1','2','3','3.5','4','5','6','7','8'].map(v=>`<option value="${v}">${v}h</option>`);
+    opts=['1','2','3','4','5','6','7','8'].map(v=>`<option value="${v}">${v}h</option>`);
   }
   sel.innerHTML=opts.join('');
   if(noteEl) noteEl.textContent=note;
