@@ -602,6 +602,8 @@ textarea { resize: vertical; min-height: 70px; }
 
   <!-- ── EXPORT TAB ── -->
   <div id="tab-export" class="tab-section">
+
+    <!-- Fill Pay Period -->
     <div class="section-card" style="margin-bottom:1.4rem;">
       <div class="sc-hdr">
         <h3>Fill Pay Period Tab in Spreadsheet</h3>
@@ -609,10 +611,11 @@ textarea { resize: vertical; min-height: 70px; }
       </div>
       <div class="sc-body">
         <div class="period-bar">
-          <span class="period-lbl">Pay period start (Monday):</span>
-          <input type="date" id="fillPeriodStart" style="width:170px;padding:7px 10px;font-size:13px;">
-          <button class="btn btn-blue btn-sm" onclick="setFillCurrentPeriod()">Current period</button>
+          <span class="period-lbl">Pay period end date (Saturday):</span>
+          <input type="date" id="fillPeriodEnd" style="width:170px;padding:7px 10px;font-size:13px;" onchange="updateFillLabel()">
+          <button class="btn btn-blue btn-sm" onclick="setFillCurrentPeriod()">Search</button>
         </div>
+        <div id="fillPeriodLabel" style="font-size:13px;color:var(--ink3);margin-bottom:1rem;"></div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
           <button class="btn btn-green" onclick="fillPayPeriodTab()">📝 Fill this pay period tab</button>
           <button class="btn btn-ghost" onclick="fillAllPayPeriodTabs()" style="font-size:0.85rem;">Fill all WE tabs</button>
@@ -620,45 +623,74 @@ textarea { resize: vertical; min-height: 70px; }
         <div id="fillMsg" style="font-size:13px;margin-top:10px;display:none;"></div>
       </div>
     </div>
+
+    <!-- Exports with Preview -->
+    <div class="section-card" style="margin-bottom:1.4rem;">
+      <div class="sc-hdr">
+        <h3>Export Reports</h3>
+      </div>
       <div class="sc-body">
-        <div class="period-bar">
-          <span class="period-lbl">Pay period start (Monday):</span>
-          <input type="date" id="exportPeriodStart" style="width:170px;padding:7px 10px;font-size:13px;">
-          <button class="btn btn-blue btn-sm" onclick="setCurrentPeriod()">Current period</button>
+        <div class="period-bar" style="margin-bottom:0.75rem;">
+          <span class="period-lbl">Pay period end date (Saturday):</span>
+          <input type="date" id="exportPeriodEnd" style="width:170px;padding:7px 10px;font-size:13px;" onchange="updateExportLabel()">
+          <button class="btn btn-blue btn-sm" onclick="setCurrentPeriod()">Search</button>
         </div>
         <div id="exportPeriodLabel" style="font-size:13px;color:var(--ink3);margin-bottom:1.2rem;"></div>
         <div class="export-grid">
-          <div class="export-card" onclick="exportBiWeeklyCSV()">
+          <div class="export-card" onclick="previewExport('biweekly')">
             <h4>📊 Full Bi-Weekly Timesheet</h4>
             <p>All employees · Mon–Sat · Hours, OT, late punches, adjustments</p>
+            <div style="margin-top:8px;font-size:11px;color:#91629B;font-weight:600;">Click to preview → then download</div>
           </div>
-          <div class="export-card" onclick="exportPunchDetailCSV()">
+          <div class="export-card" onclick="previewExport('punches')">
             <h4>🕐 Punch Detail Log</h4>
             <p>Every in/out/meal punch with timestamps</p>
+            <div style="margin-top:8px;font-size:11px;color:#91629B;font-weight:600;">Click to preview → then download</div>
           </div>
-          <div class="export-card" onclick="exportAccrualsCSV()">
+          <div class="export-card" onclick="previewExport('accruals')">
             <h4>📋 Accrual Balances</h4>
             <p>All employee leave balances and YTD usage</p>
+            <div style="margin-top:8px;font-size:11px;color:#91629B;font-weight:600;">Click to preview → then download</div>
           </div>
-          <div class="export-card" onclick="exportRosterCSV()">
+          <div class="export-card" onclick="previewExport('roster')">
             <h4>👥 Employee Roster</h4>
             <p>Active employees, IDs, departments</p>
+            <div style="margin-top:8px;font-size:11px;color:#91629B;font-weight:600;">Click to preview → then download</div>
           </div>
         </div>
       </div>
     </div>
 
+    <!-- Export History -->
     <div class="section-card">
       <div class="sc-hdr">
         <h3>Export History</h3>
         <button class="btn btn-ghost btn-sm" onclick="clearExportLog()">Clear log</button>
       </div>
       <div class="sc-body" style="padding:0;">
-        <table class="data-table" id="exportLogTable">
+        <table class="data-table">
           <thead><tr><th>Report type</th><th>Pay period</th><th>Exported at</th><th>Records</th></tr></thead>
           <tbody id="exportLogTbody"></tbody>
         </table>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ MODAL: EXPORT PREVIEW ═══════════ -->
+<div class="modal-overlay" id="modalExportPreview" style="align-items:flex-start;padding-top:2rem;">
+  <div class="modal" style="max-width:900px;max-height:85vh;">
+    <div class="modal-hdr">
+      <h3 id="previewTitle">Preview</h3>
+      <button class="modal-close" onclick="closeModal('modalExportPreview')">✕</button>
+    </div>
+    <div class="modal-body" style="padding:0;overflow-x:auto;">
+      <div id="previewContent" style="padding:1rem;font-size:12px;"></div>
+    </div>
+    <div class="modal-foot">
+      <span style="font-size:12px;color:var(--ink3);" id="previewCount"></span>
+      <button class="btn btn-ghost" onclick="closeModal('modalExportPreview')">Close</button>
+      <button class="btn btn-primary" id="previewDownloadBtn" onclick="downloadPreview()">↓ Download CSV</button>
     </div>
   </div>
 </div>
@@ -867,7 +899,7 @@ async function initAdmin() {
   try { await renderEmpTable(); } catch(e) { console.warn('renderEmpTable:', e.message); }
   try { await populateEmpSelectors(); } catch(e) { console.warn('populateEmpSelectors:', e.message); }
   try { await renderPunchLog(); } catch(e) { console.warn('renderPunchLog:', e.message); }
-  try { setCurrentPeriod(); updateExportLabel(); } catch(e) { console.warn('period:', e.message); }
+  try { setCurrentPeriod(); setFillCurrentPeriod(); updateExportLabel(); updateFillLabel(); } catch(e) { console.warn('period:', e.message); }
   try { await updatePendingBadge(); } catch(e) { console.warn('pendingBadge:', e.message); }
   hideLoading();
 
@@ -1148,12 +1180,15 @@ async function renderYTDSummary() {
     const allEmps = await loadEmployees();
     const validEmps = allEmps.filter(e => e.id && e.last);
 
-    // Populate filter selector first (only if not already populated)
+    // Populate filter selector — rebuild to stay current, preserve selection
     const sel = document.getElementById('ytdEmpFilter');
-    if (sel && sel.options.length <= 1) {
+    const prevVal = sel?.value || 'ALL';
+    if (sel) {
+      sel.innerHTML = '<option value="ALL">All employees</option>';
       validEmps.forEach(e => {
         const opt = document.createElement('option');
         opt.value = e.id; opt.textContent = e.last+', '+e.first;
+        if (e.id === prevVal) opt.selected = true;
         sel.appendChild(opt);
       });
     }
@@ -1163,12 +1198,15 @@ async function renderYTDSummary() {
     const emps = validEmps.filter(e => filterVal === 'ALL' || e.id === filterVal);
 
     let html = '';
+    // Load ALL accruals in one call instead of one per employee
+    let allAcc = {};
+    try {
+      const accR = await api('getAccruals', {});
+      allAcc = accR.data || {};
+    } catch(e) { console.warn('Could not load accruals:', e.message); }
+
     for (const emp of emps) {
-      let acc = null;
-      try {
-        const r = await api('getAccruals', {empId: emp.id});
-        acc = r.data || null;
-      } catch(e) { acc = null; }
+      const acc = allAcc[emp.id] || null;
 
       const typePill = String(emp.empType||'').toLowerCase() === 'full-time'
         ? `<span class="pill" style="background:#e8eef5;color:#1e3a5f;font-size:11px;">FT</span>`
@@ -1331,6 +1369,8 @@ async function saveAccrualEdits(empId) {
     const msg = document.getElementById('accSaveMsg');
     if (msg) { msg.textContent='✓ Saved at '+new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}); msg.style.color='#34A952'; setTimeout(()=>msg.textContent='',3000); }
     toast('Accruals saved for '+empId);
+    // Refresh YTD summary so it reflects new values immediately
+    renderYTDSummary();
   } catch(e) { toast('Save failed: '+e.message); }
 }
 
@@ -1376,13 +1416,39 @@ async function renderTimeOffAdmin() {
       <td><span class="pill" style="${ss[status]||''};font-size:11px;">${status.charAt(0).toUpperCase()+status.slice(1)}</span></td>
       <td>${isPending?`<div style="display:flex;gap:5px;">
         <button class="btn btn-green btn-sm" onclick="decideTimeOff('${rid}','approved')">✓ Approve</button>
-        <button class="btn btn-red btn-sm" onclick="decideTimeOff('${rid}','denied')">✕ Deny</button>
+        <button class="btn btn-red btn-sm" onclick="openDenyModal('${rid}','${name} · ${type} · ${start}${end&&end!==start?' – '+end:''}')">✕ Deny</button>
       </div>`:`<span style="font-size:12px;color:var(--ink3);">${decided?new Date(decided).toLocaleDateString('en-US',{month:'short',day:'numeric'}):''}</span>`}</td>
     </tr>`;
   }).join('') : `<tr><td colspan="8"><div class="empty">No time off requests.</div></td></tr>`;
   updatePendingBadge();
 }
-async function decideTimeOff(requestId, decision) {
+let _denyRequestId = null;
+function openDenyModal(requestId, summary) {
+  _denyRequestId = requestId;
+  document.getElementById('denyRequestSummary').textContent = summary;
+  document.getElementById('denyReason').value = '';
+  openModal('modalDeny');
+}
+async function confirmDeny() {
+  if (!_denyRequestId) return;
+  const reason = document.getElementById('denyReason').value.trim();
+  closeModal('modalDeny');
+  showLoading('Denying…');
+  try {
+    await Promise.race([
+      api('decideTimeOff',{},{requestId: _denyRequestId, decision: 'denied', reason}),
+      new Promise((_,reject) => setTimeout(()=>reject(new Error('Timeout')),15000))
+    ]);
+    hideLoading();
+    renderTimeOffAdmin();
+    toast('Request denied');
+    updatePendingBadge();
+  } catch(e) {
+    hideLoading();
+    toast('Could not deny request: '+e.message);
+  }
+  _denyRequestId = null;
+}
   showLoading(decision==='approved'?'Approving…':'Denying…');
   try {
     const result = await Promise.race([
@@ -1529,135 +1595,171 @@ async function exportAdjCSV() {
 // ════════════════════════════════════════
 //  EXPORT
 // ════════════════════════════════════════
-function mondayOfDate(d){const dt=new Date(d);const day=dt.getDay();dt.setDate(dt.getDate()-(day===0?6:day-1));dt.setHours(0,0,0,0);return dt;}
-function setFillCurrentPeriod() {
-  const mon = mondayOfDate(new Date());
-  document.getElementById('fillPeriodStart').value = mon.toISOString().slice(0,10);
+// ── Pay period helpers — END DATE based ──
+function saturdayOfCurrentPeriod() {
+  const d = new Date(); const day = d.getDay();
+  const daysToSat = (6 - day + 7) % 7;
+  const sat = new Date(d); sat.setDate(d.getDate() + daysToSat); sat.setHours(0,0,0,0); return sat;
 }
-async function fillPayPeriodTab() {
-  const val = document.getElementById('fillPeriodStart').value;
-  const msg = document.getElementById('fillMsg');
-  if (!val) { msg.textContent='Please select a pay period start date.'; msg.style.color='#BD3531'; msg.style.display='block'; return; }
-  showLoading('Filling pay period tab…');
-  try {
-    const r = await api('fillPayPeriod',{},{periodStart:val});
-    hideLoading();
-    if (r.ok) {
-      msg.textContent = `✓ Filled tab "${r.tab}" for ${r.employees} employees`;
-      msg.style.color = '#34A952';
-    } else {
-      msg.textContent = 'Error: '+(r.error||'Unknown error');
-      msg.style.color = '#BD3531';
-    }
-    msg.style.display = 'block';
-    setTimeout(()=>msg.style.display='none', 5000);
-  } catch(e) {
-    hideLoading();
-    msg.textContent = 'Failed: '+e.message;
-    msg.style.color = '#BD3531';
-    msg.style.display = 'block';
-  }
+function periodDatesFromEnd(endDateStr) {
+  const end = new Date(endDateStr+'T12:00:00');
+  const start = new Date(end); start.setDate(end.getDate()-12);
+  const dates = [];
+  for(let i=0;i<14;i++){const d=new Date(start);d.setDate(start.getDate()+i);if(d.getDay()!==0)dates.push(d.toISOString().slice(0,10));}
+  return {start,end,dates};
 }
-async function fillAllPayPeriodTabs() {
-  const msg = document.getElementById('fillMsg');
-  if (!confirm('Fill ALL pay period tabs? This may take 30–60 seconds.')) return;
-  showLoading('Filling all pay period tabs… please wait');
-  try {
-    const r = await api('fillAllPeriods',{},{});
-    hideLoading();
-    if (r.ok) {
-      msg.textContent = `✓ Filled ${r.filled} pay period tabs`;
-      msg.style.color = '#34A952';
-    } else {
-      msg.textContent = 'Error: '+(r.error||'Unknown error');
-      msg.style.color = '#BD3531';
-    }
-    msg.style.display = 'block';
-    setTimeout(()=>msg.style.display='none', 6000);
-  } catch(e) {
-    hideLoading();
-    msg.textContent = 'Failed: '+e.message;
-    msg.style.color = '#BD3531';
-    msg.style.display = 'block';
-  }
+function setCurrentPeriod(){
+  const sat=saturdayOfCurrentPeriod();
+  const el=document.getElementById('exportPeriodEnd');
+  if(el){el.value=sat.toISOString().slice(0,10);updateExportLabel();}
 }
-function setCurrentPeriod(){const mon=mondayOfDate(new Date());document.getElementById('exportPeriodStart').value=mon.toISOString().slice(0,10);updateExportLabel();}
+function setFillCurrentPeriod(){
+  const sat=saturdayOfCurrentPeriod();
+  const el=document.getElementById('fillPeriodEnd');
+  if(el){el.value=sat.toISOString().slice(0,10);updateFillLabel();}
+}
 function updateExportLabel(){
-  const val=document.getElementById('exportPeriodStart').value;
+  const val=document.getElementById('exportPeriodEnd')?.value;
   const lbl=document.getElementById('exportPeriodLabel');
-  if(!val){lbl.textContent='';return;}
-  const start=new Date(val+'T00:00:00');
-  const end=new Date(start);end.setDate(start.getDate()+12);
-  lbl.textContent=`Period: ${start.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})} – ${end.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})} (Mon–Sat × 2 weeks)`;
+  if(!val){if(lbl)lbl.textContent='';return;}
+  const pd=periodDatesFromEnd(val);
+  if(lbl) lbl.textContent=`Period: ${pd.start.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})} – ${pd.end.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})} (Mon–Sat × 2 weeks)`;
+}
+function updateFillLabel(){
+  const val=document.getElementById('fillPeriodEnd')?.value;
+  const lbl=document.getElementById('fillPeriodLabel');
+  if(!val){if(lbl)lbl.textContent='';return;}
+  const pd=periodDatesFromEnd(val);
+  if(lbl) lbl.textContent=`Fills tab: WE ${pd.end.getMonth()+1}-${pd.end.getDate()}-${String(pd.end.getFullYear()).slice(2)} · ${pd.start.toLocaleDateString('en-US',{month:'short',day:'numeric'})} – ${pd.end.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}`;
 }
 document.addEventListener('DOMContentLoaded',()=>{
-  const el=document.getElementById('exportPeriodStart');
-  if(el) el.addEventListener('change',updateExportLabel);
+  const sat=saturdayOfCurrentPeriod(); const satStr=sat.toISOString().slice(0,10);
+  const ep=document.getElementById('exportPeriodEnd');
+  const fp=document.getElementById('fillPeriodEnd');
+  if(ep){ep.value=satStr;updateExportLabel();}
+  if(fp){fp.value=satStr;updateFillLabel();}
 });
 function getPeriodDates(){
-  const val=document.getElementById('exportPeriodStart').value;
-  if(!val){toast('Select a pay period start date');return null;}
-  const start=new Date(val+'T00:00:00'),dates=[];
-  for(let i=0;i<14;i++){const d=new Date(start);d.setDate(start.getDate()+i);if(d.getDay()!==0)dates.push(d.toISOString().slice(0,10));}
-  return dates;
+  const val=document.getElementById('exportPeriodEnd')?.value;
+  if(!val){toast('Select a pay period end date');return null;}
+  return periodDatesFromEnd(val).dates;
 }
-async function exportBiWeeklyCSV(){
-  const dates=getPeriodDates();if(!dates)return;
-  const allEmpEx=await loadEmployees();
-  const emps=allEmpEx.filter(e=>String(e.status).toLowerCase()==='active'&&e.id&&e.last);
-  const allPunches=await loadAllPunchesAsMap();
-  const rows=[['Employee ID','Last','First','Dept','Type','Date','Day','Punch In','Punch Out','Meal Out','Meal In','Reg Hours','OT Hours','Holiday Pay','Library Closure','Late?','Note']];
-  emps.filter(e=>e.status==='active').forEach(emp=>{
-    const ep=allPunches[emp.id]||[];
+async function fillPayPeriodTab(){
+  const val=document.getElementById('fillPeriodEnd').value;
+  const msg=document.getElementById('fillMsg');
+  if(!val){msg.textContent='Please select a pay period end date.';msg.style.color='#BD3531';msg.style.display='block';return;}
+  const pd=periodDatesFromEnd(val);
+  const startStr=pd.start.toISOString().slice(0,10);
+  showLoading('Filling pay period tab…');
+  try{
+    const r=await api('fillPayPeriod',{},{periodStart:startStr});
+    hideLoading();
+    if(r.ok){msg.textContent=`✓ Filled tab "${r.tab}" for ${r.employees} employees`;msg.style.color='#34A952';}
+    else{msg.textContent='Error: '+(r.error||'Unknown');msg.style.color='#BD3531';}
+    msg.style.display='block'; setTimeout(()=>msg.style.display='none',5000);
+  }catch(e){hideLoading();msg.textContent='Failed: '+e.message;msg.style.color='#BD3531';msg.style.display='block';}
+}
+async function fillAllPayPeriodTabs(){
+  const msg=document.getElementById('fillMsg');
+  if(!confirm('Fill ALL pay period tabs? This may take 30-60 seconds.')) return;
+  showLoading('Filling all pay period tabs…');
+  try{
+    const r=await api('fillAllPeriods',{},{});
+    hideLoading();
+    if(r.ok){msg.textContent=`✓ Filled ${r.filled} pay period tabs`;msg.style.color='#34A952';}
+    else{msg.textContent='Error: '+(r.error||'Unknown');msg.style.color='#BD3531';}
+    msg.style.display='block'; setTimeout(()=>msg.style.display='none',6000);
+  }catch(e){hideLoading();msg.textContent='Failed: '+e.message;msg.style.color='#BD3531';msg.style.display='block';}
+}
+
+// ── Preview & export ──
+let _previewRows=null, _previewFilename='', _previewType='';
+async function previewExport(type){
+  _previewType=type;
+  showLoading('Building preview…');
+  try{
+    let rows=[],title='',filename='';
+    const dates=(type==='biweekly'||type==='punches')? getPeriodDates():null;
+    if((type==='biweekly')&&!dates){hideLoading();return;}
+    if(type==='biweekly'){rows=await buildBiWeeklyRows(dates);title='Full Bi-Weekly Timesheet';filename=`nhml-biweekly-${dates[0]}.csv`;}
+    else if(type==='punches'){rows=await buildPunchRows();title='Punch Detail Log';filename=`nhml-punchlog-${new Date().toISOString().slice(0,10)}.csv`;}
+    else if(type==='accruals'){rows=await buildAccrualRows();title='Accrual Balances';filename=`nhml-accruals-${new Date().toISOString().slice(0,10)}.csv`;}
+    else if(type==='roster'){rows=await buildRosterRows();title='Employee Roster';filename=`nhml-roster-${new Date().toISOString().slice(0,10)}.csv`;}
+    _previewRows=rows; _previewFilename=filename;
+    hideLoading();
+    document.getElementById('previewTitle').textContent=title;
+    document.getElementById('previewCount').textContent=`${rows.length-1} records`;
+    const headers=rows[0]||[]; const dataRows=rows.slice(1);
+    document.getElementById('previewContent').innerHTML=`
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr>${headers.map(h=>`<th style="background:#faf9fe;padding:6px 8px;border:1px solid #e5e3f0;white-space:nowrap;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:#9896b0;">${h}</th>`).join('')}</tr></thead>
+        <tbody>${dataRows.slice(0,100).map((r,i)=>`<tr style="background:${i%2===0?'#fff':'#faf9fe'};">${r.map(c=>`<td style="padding:5px 8px;border:1px solid #e5e3f0;white-space:nowrap;">${String(c||'')}</td>`).join('')}</tr>`).join('')}</tbody>
+      </table>
+      ${dataRows.length>100?`<div style="padding:1rem;text-align:center;color:#9896b0;font-size:12px;">Showing first 100 of ${dataRows.length} rows</div>`:''}`;
+    openModal('modalExportPreview');
+  }catch(e){hideLoading();toast('Preview failed: '+e.message);}
+}
+function downloadPreview(){
+  if(!_previewRows) return;
+  downloadFile(toCSV(_previewRows),_previewFilename,'text/csv');
+  logExportToSheet(_previewType,_previewFilename,_previewRows.length-1);
+  closeModal('modalExportPreview');
+  toast('Downloaded: '+_previewFilename);
+}
+async function buildBiWeeklyRows(dates){
+  const emps=(await loadEmployees()).filter(e=>String(e.status).toLowerCase()==='active'&&e.id&&e.last);
+  const allPA=await api('getAllPunches',{}).then(r=>r.data||[]);
+  const pu={}; allPA.forEach(p=>{if(!pu[p.empId])pu[p.empId]=[];pu[p.empId].push(p);});
+  const rows=[['Emp ID','Last','First','Dept','Type','Date','Day','In','Out','Meal Out','Meal In','Reg Hrs','OT','Holiday','Closure','Late?','Note']];
+  emps.forEach(emp=>{
+    const ep=pu[emp.id]||[];
     dates.forEach(date=>{
-      const dp=ep.filter(p=>p.date===date);
-      const pIn=dp.find(p=>p.event==='Punch In');
-      const pOut=dp.find(p=>p.event==='Punch Out');
-      const mOut=dp.find(p=>p.event==='Meal Break Out');
-      const mIn=dp.find(p=>p.event==='Meal Break In');
+      const dp=ep.filter(p=>cleanDate(p.date)===date);
+      const pI=dp.find(p=>p.event==='Punch In'),pO=dp.find(p=>p.event==='Punch Out');
+      const mO=dp.find(p=>p.event==='Meal Break Out'),mI=dp.find(p=>p.event==='Meal Break In');
       const adjs=dp.filter(p=>p.isAdjustment);
-      if(!pIn&&!pOut&&!adjs.length) return;
-      const dayName=new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short'});
+      if(!pI&&!pO&&!adjs.length) return;
+      const day=new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short'});
       const note=dp.filter(p=>p.adminEdited).map(p=>p.note).filter(Boolean).join('; ');
-      rows.push([emp.id,emp.last,emp.first,emp.dept,emp.empType||'',date,dayName,
-        pIn?pIn.time:'',pOut?pOut.time:'',mOut?mOut.time:'',mIn?mIn.time:'',
-        '','',adjs.find(p=>p.event==='Holiday Pay')?adjs.find(p=>p.event==='Holiday Pay').hours:'',
-        adjs.find(p=>p.event==='Library Closure')?adjs.find(p=>p.event==='Library Closure').hours:'',
-        pIn&&String(pIn.isLate)==='true'?'YES':'',note]);
+      rows.push([emp.id,emp.last,emp.first,emp.dept,emp.empType||'',date,day,
+        pI?cleanTime(pI.time):'',pO?cleanTime(pO.time):'',
+        mO?cleanTime(mO.time):'',mI?cleanTime(mI.time):'',
+        '','',
+        adjs.find(p=>p.event==='Holiday Pay')?.hours||'',
+        adjs.find(p=>p.event==='Library Closure')?.hours||'',
+        pI&&String(pI.isLate)==='true'?'YES':'',note]);
     });
   });
-  downloadFile(toCSV(rows),`nhml-biweekly-${dates[0]}.csv`,'text/csv');
-  logExportToSheet('Bi-Weekly Timesheet',dates[0]+' – '+dates[dates.length-1],rows.length-1);
-  toast('Bi-weekly timesheet exported');
+  return rows;
 }
-async function exportPunchDetailCSV(){
-  const allEmpPD=await loadEmployees();
-  const emps=allEmpPD.filter(e=>e.id&&e.last);
-  const punches=await loadAllPunchesAsMap();
-  const rows=[['Punch ID','Employee ID','Last','First','Event','Date','Time','Late','Admin Edited','Note']];
-  emps.forEach(emp=>(punches[emp.id]||[]).forEach(p=>rows.push([p.punchId||'',emp.id,emp.last,emp.first,p.event,p.date||'',p.time||'',p.isLate?'YES':'',p.adminEdited?'YES':'',p.note||''])));
-  downloadFile(toCSV(rows),`nhml-punchlog-${new Date().toISOString().slice(0,10)}.csv`,'text/csv');
-  logExportToSheet('Punch Detail Log',new Date().toLocaleDateString(),rows.length-1); toast('Punch log exported');
+async function buildPunchRows(){
+  const emps=await loadEmployees();
+  const allPA=await api('getAllPunches',{}).then(r=>r.data||[]);
+  const pu={}; allPA.forEach(p=>{if(!pu[p.empId])pu[p.empId]=[];pu[p.empId].push(p);});
+  const rows=[['Punch ID','Emp ID','Last','First','Event','Date','Time','Late','Admin Edit','Note']];
+  emps.filter(e=>e.id&&e.last).forEach(emp=>(pu[emp.id]||[]).forEach(p=>rows.push([p.punchId||'',emp.id,emp.last,emp.first,p.event,cleanDate(p.date),cleanTime(p.time),p.isLate?'YES':'',p.adminEdited?'YES':'',p.note||''])));
+  return rows;
 }
-async function exportAccrualsCSV(){
-  const allEmpAc=await loadEmployees();
-  const emps=allEmpAc.filter(e=>e.id&&e.last);
-  const rows=[['Employee ID','Last','First','Vac Bal','Vac Used','Sick Bal(h)','Sick Used(h)','Personal Bal','Personal Used','Float Bal','Float Used','LWOP Used','Jury Hrs','Jury Events','Bereavement Hrs','Bereavement Events']];
-  for(const emp of emps){
-    const a=await loadAccruals(emp.id);
+async function buildAccrualRows(){
+  const emps=await loadEmployees();
+  const accR=await api('getAccruals',{}).then(r=>r.data||{});
+  const rows=[['Emp ID','Last','First','Vac Bal','Vac Used','Sick Bal(h)','Sick Used(h)','Pers Bal','Pers Used','Float Bal','Float Used','LWOP Used','Jury Hrs','Jury Events','Bereavement Hrs','Bereavement Events']];
+  emps.filter(e=>e.id&&e.last).forEach(emp=>{
+    const a=accR[emp.id]||{};
     rows.push([emp.id,emp.last,emp.first,a.vacation?.bal||0,a.vacation?.used||0,a.sick?.bal||0,a.sick?.used||0,a.personal?.bal||0,a.personal?.used||0,a.floatHoliday?.bal||0,a.floatHoliday?.used||0,a.lwop?.used||0,a.jury?.used||0,a.jury?.events||0,a.bereavement?.used||0,a.bereavement?.events||0]);
-  }
-  downloadFile(toCSV(rows),`nhml-accruals-${new Date().toISOString().slice(0,10)}.csv`,'text/csv');
-  logExportToSheet('Accrual Balances',new Date().toLocaleDateString(),rows.length-1); toast('Accruals exported');
+  });
+  return rows;
 }
-async function exportRosterCSV(){
-  const allEmpRo=await loadEmployees();
-  const emps=allEmpRo.filter(e=>e.id&&e.last);
-  const rows=[['Employee ID','Last','First','Department','Emp Type','Status','Hire Date']];
-  emps.forEach(e=>rows.push([e.id,e.last,e.first,e.dept,e.empType||'',e.status,e.hireDate||'']));
-  downloadFile(toCSV(rows),`nhml-roster-${new Date().toISOString().slice(0,10)}.csv`,'text/csv');
-  logExportToSheet('Employee Roster',new Date().toLocaleDateString(),rows.length-1); toast('Roster exported');
+async function buildRosterRows(){
+  const emps=await loadEmployees();
+  const rows=[['Emp ID','Last','First','Department','Emp Type','Status','Hire Date']];
+  emps.filter(e=>e.id&&e.last).forEach(e=>rows.push([e.id,e.last,e.first,e.dept,e.empType||'',e.status,e.hireDate||'']));
+  return rows;
 }
+async function exportBiWeeklyCSV(){await previewExport('biweekly');}
+async function exportPunchDetailCSV(){await previewExport('punches');}
+async function exportAccrualsCSV(){await previewExport('accruals');}
+async function exportRosterCSV(){await previewExport('roster');}
 
 // ════════════════════════════════════════
 //  EXPORT LOG
@@ -1705,5 +1807,28 @@ function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t
 // Auto-refresh stats every 30s when logged in
 setInterval(()=>{ if(document.getElementById('screen-admin').style.display!=='none') renderStats(); },30000);
 </script>
+
+<!-- ═══════════ MODAL: DENY REASON ═══════════ -->
+<div class="modal-overlay" id="modalDeny">
+  <div class="modal" style="max-width:440px;">
+    <div class="modal-hdr">
+      <h3>Deny Time Off Request</h3>
+      <button class="modal-close" onclick="closeModal('modalDeny')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="denyRequestSummary" style="background:#fef2f2;border:1.5px solid #fca5a5;border-radius:8px;padding:0.85rem 1rem;margin-bottom:1.1rem;font-size:0.88rem;color:#7f1d1d;"></div>
+      <div class="fgrp">
+        <label class="field-lbl">Reason for denial <span style="color:var(--ink3);font-weight:400;">(optional — visible to employee)</span></label>
+        <textarea id="denyReason" placeholder="e.g. Insufficient coverage that week, please choose alternative dates…" style="min-height:90px;"></textarea>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal('modalDeny')">Cancel</button>
+      <button class="btn btn-red" onclick="confirmDeny()">Deny request</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast-msg" id="toast"></div>
 </body>
 </html>
