@@ -743,7 +743,7 @@ input::placeholder { color: #c0bdd8; }
 //  Set ALLOWED_RANGES to your subnet(s), e.g. ['192.168.1.', '10.0.0.']
 //  Uses an external IP-echo service to get the client IP.
 // ══════════════════════════════════════════
-const ALLOWED_RANGES = ['192.168.32.']; // 192.168.32.0/24
+const ALLOWED_RANGES = ['192.168.32.'];
 
 // IP CHECK DISABLED FOR TESTING — set TESTING = false to re-enable
 const TESTING = true;
@@ -1120,8 +1120,11 @@ async function doLogin() {
     const emp = EMPLOYEES.find(e=>{
       const lastMatch = String(e.last).toLowerCase().trim() === last.trim();
       const pinMatch  = String(e.pin).trim() === String(pin).trim();
+      console.log(`Check: last="${e.last}" vs "${last}" = ${lastMatch} | pin="${e.pin}"(${typeof e.pin}) vs "${pin}"(${typeof pin}) = ${pinMatch}`);
       return lastMatch && pinMatch;
     });
+    console.log('Login attempt:', last, pin, '| Employees loaded:', EMPLOYEES.length, '| Match:', !!emp);
+    if (EMPLOYEES.length > 0) console.log('First emp:', EMPLOYEES[0].last, '|', EMPLOYEES[0].pin, '| types:', typeof EMPLOYEES[0].last, typeof EMPLOYEES[0].pin);
     if (!emp) {
       hideLoading();
       err.innerHTML = 'Last name or PIN not recognized. Please try again.';
@@ -1133,8 +1136,6 @@ async function doLogin() {
     initState(emp);
     const punches = await loadTodayPunches(emp.id);
     restoreStateFromPunches(emp.id, punches);
-    // Mark any approved time off whose end date has passed as 'used' and deduct accruals
-    await api('markTimeOffUsed', {}, {}).catch(e => console.warn('markTimeOffUsed:', e.message));
     await api('checkSickAccrual',{},{empId:emp.id,empType:emp.empType||'part-time'}).then(r=>{
       if(r.accrued) setTimeout(()=>toast((emp.empType==='full-time'||String(emp.empType).toLowerCase()==='full-time'?'7':'25')+' sick hours added — auto accrual'),800);
     }).catch(e=>console.warn('Sick accrual check skipped:', e.message));
@@ -1347,14 +1348,14 @@ function updateAmountOptions() {
   let opts = [], noteText = '';
   if (type === 'Sick time') {
     opts = [
-      {v:'1 hour (0.14)',    l:'1 hour'},
-      {v:'2 hours (0.29)',   l:'2 hours'},
-      {v:'3 hours (0.43)',   l:'3 hours'},
-      {v:'Half day (0.50)',  l:'Half day'},
-      {v:'4 hours (0.57)',   l:'4 hours'},
-      {v:'5 hours (0.71)',   l:'5 hours'},
-      {v:'6 hours (0.86)',   l:'6 hours'},
-      {v:'Full day (1.00)',  l:'Full day'},
+      {v:'1',   l:'1 hour'},
+      {v:'2',   l:'2 hours'},
+      {v:'3',   l:'3 hours'},
+      {v:'3.5', l:'3.5 hours (half day)'},
+      {v:'4',   l:'4 hours'},
+      {v:'5',   l:'5 hours'},
+      {v:'6',   l:'6 hours'},
+      {v:'7',   l:'7 hours (full day)'},
     ];
     noteText = 'Sick time is taken in hourly increments.';
   } else if (type === 'Leave without pay') {
@@ -1922,7 +1923,7 @@ async function renderAccruals() {
         <div class="accrual-name">${t.label}</div>
         <div style="font-size:12px;color:#444440;margin-top:3px;">${a.events>0?`${a.events} occurrence${a.events>1?'s':''} this year`:'No occurrences this year'}</div>
       </div>
-      <div class="accrual-nums"><strong style="color:${t.color};">${a.used}h</strong> used this year</div>
+      <div class="accrual-nums"><strong style="color:${t.color};">${a.used} day${a.used!==1?'s':''}</strong> used this year</div>
     </div>`;
   }).join('');
 
@@ -1951,7 +1952,7 @@ async function renderAccruals() {
     </tr>` +
     specialTypes.map(t => {
       const a = acc[t.key]||{used:0,events:0};
-      return `<tr><td>${t.label}</td><td style="font-size:11px;color:#444440;">FT only</td><td colspan="3" style="color:#444440;">${a.used||0}h · ${a.events||0} occurrence${(a.events||0)!==1?'s':''}</td></tr>`;
+      return `<tr><td>${t.label}</td><td style="font-size:11px;color:#444440;">FT only</td><td colspan="3" style="color:#444440;">${a.used||0} day${(a.used||0)!==1?'s':''} · ${a.events||0} occurrence${(a.events||0)!==1?'s':''}</td></tr>`;
     }).join('') +
     `</tbody>`;
 }
