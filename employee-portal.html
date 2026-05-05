@@ -892,9 +892,14 @@ async function loadTodayPunches(empId) {
 let _accrualsCache = null;
 async function loadAccruals(empId) {
   if (_accrualsCache && empId && _accrualsCache._empId === empId) return _accrualsCache._data;
-  const r = await api('getAccruals', {empId});
-  if (r.ok && r.data && empId) { _accrualsCache = {_empId: empId, _data: r.data}; }
-  return r.data || null;
+  try {
+    const r = await api('getAccruals', {empId});
+    if (r.data && empId) { _accrualsCache = {_empId: empId, _data: r.data}; }
+    return r.data || null;
+  } catch(e) {
+    console.warn('loadAccruals failed:', e.message);
+    return null;
+  }
 }
 async function loadTimeOff(empId) {
   const r = await api('getTimeOff', {empId});
