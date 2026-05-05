@@ -1391,26 +1391,22 @@ async function renderAccrualEditor() {
   <div class="section-title">Sick Time <span style="font-weight:400;color:var(--ink3);">1h=.14, 2h=.29, 3h=.43, ½day=.50, 4h=.57, 5h=.71, 6h=.86</span></div>
   <div class="acc-grid" style="margin-bottom:1rem;">
     <div class="acc-card"><div class="acc-card-lbl">Balance (hours)</div><input type="number" step="0.01" id="acc_sick_bal" value="${acc.sick?.bal||0}"></div>
-    <div class="acc-card"><div class="acc-card-lbl">Max (hours)</div><input type="number" step="1" id="acc_sick_max" value="${acc.sick?.max||200}"></div>
     <div class="acc-card"><div class="acc-card-lbl">Deduct used time</div><select id="acc_sick_deduct"><option value="">— select —</option>${sickDeductOpts}</select>
     <div style="font-size:11px;color:var(--ink3);margin-top:4px;">Used YTD: <strong>${acc.sick?.used||0}</strong></div></div>
   </div>
   <div class="section-title">Vacation <span style="font-weight:400;color:var(--ink3);">¼, ½, ¾, full day increments</span></div>
   <div class="acc-grid" style="margin-bottom:1rem;">
     <div class="acc-card"><div class="acc-card-lbl">Balance</div><select id="acc_vacation_bal">${qSel(acc.vacation?.bal||0)}</select></div>
-    <div class="acc-card"><div class="acc-card-lbl">Max</div><input type="number" step="0.25" id="acc_vacation_max" value="${acc.vacation?.max||120}"></div>
     <div class="acc-card"><div class="acc-card-lbl">Used YTD</div><select id="acc_vacation_used">${qSel(acc.vacation?.used||0)}</select></div>
   </div>
   <div class="section-title">Personal Time <span style="font-weight:400;color:var(--ink3);">¼, ½, ¾, full day</span></div>
   <div class="acc-grid" style="margin-bottom:1rem;">
     <div class="acc-card"><div class="acc-card-lbl">Balance</div><select id="acc_personal_bal">${qSel(acc.personal?.bal||0)}</select></div>
-    <div class="acc-card"><div class="acc-card-lbl">Max</div><input type="number" step="0.25" id="acc_personal_max" value="${acc.personal?.max||16}"></div>
     <div class="acc-card"><div class="acc-card-lbl">Used YTD</div><select id="acc_personal_used">${qSel(acc.personal?.used||0)}</select></div>
   </div>
   <div class="section-title">Floating Holiday <span style="font-weight:400;color:var(--ink3);">¼, ½, ¾, full day</span></div>
   <div class="acc-grid" style="margin-bottom:1rem;">
     <div class="acc-card"><div class="acc-card-lbl">Balance</div><select id="acc_floatHoliday_bal">${qSel(acc.floatHoliday?.bal||0)}</select></div>
-    <div class="acc-card"><div class="acc-card-lbl">Max</div><input type="number" step="0.25" id="acc_floatHoliday_max" value="${acc.floatHoliday?.max||8}"></div>
     <div class="acc-card"><div class="acc-card-lbl">Used YTD</div><select id="acc_floatHoliday_used">${qSel(acc.floatHoliday?.used||0)}</select></div>
   </div>
   <div class="section-title">Leave Without Pay <span style="font-weight:400;color:var(--ink3);">no accrual — enter hours directly</span></div>
@@ -1439,16 +1435,14 @@ async function saveAccrualEdits(empId) {
     if (!acc) throw new Error('No data');
   } catch(e) { toast('Could not load accruals: '+e.message); return; }
 
-  acc.sick = acc.sick || {bal:0,max:200,used:0};
+  acc.sick = acc.sick || {bal:0,used:0};
   acc.sick.bal  = parseFloat(document.getElementById('acc_sick_bal').value)||0;
-  acc.sick.max  = parseFloat(document.getElementById('acc_sick_max').value)||0;
   const sd = parseFloat(document.getElementById('acc_sick_deduct').value)||0;
   if (sd>0) { acc.sick.used=parseFloat((acc.sick.used+sd).toFixed(2)); acc.sick.bal=parseFloat(Math.max(0,acc.sick.bal-sd).toFixed(2)); }
   ['vacation','personal','floatHoliday'].forEach(k=>{
-    acc[k] = acc[k] || {bal:0,max:0,used:0};
+    acc[k] = acc[k] || {bal:0,used:0};
     acc[k].bal  = parseFloat(document.getElementById(`acc_${k}_bal`).value)||0;
     acc[k].used = parseFloat(document.getElementById(`acc_${k}_used`).value)||0;
-    acc[k].max  = parseFloat(document.getElementById(`acc_${k}_max`).value)||0;
   });
   acc.lwop = acc.lwop || {used:0};
   acc.lwop.used  = parseFloat(document.getElementById('acc_lwop_used').value)||0;
