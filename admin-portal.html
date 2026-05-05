@@ -1386,7 +1386,7 @@ async function renderAccrualEditor() {
   const sickDeductOpts=SICK_TABLE.map(s=>`<option value="${s.val}">${s.label} (${s.val})</option>`).join('');
   body.innerHTML=`
   <div style="margin-bottom:1rem;padding:10px 14px;background:#f5f3ee;border-radius:7px;border:1px solid var(--border);">
-    <strong>${empName}</strong><span style="font-size:12px;color:var(--ink3);margin-left:8px;">${emp?emp.dept:''} · ${emp?emp.empType:''}</span>
+    <strong style="color:var(--ink);">${empName}</strong><span style="font-size:12px;color:var(--ink3);margin-left:8px;">${emp?emp.dept:''} · ${emp?emp.empType:''}</span>
   </div>
   <div class="section-title">Sick Time <span style="font-weight:400;color:var(--ink3);">1h=.14, 2h=.29, 3h=.43, ½day=.50, 4h=.57, 5h=.71, 6h=.86</span></div>
   <div class="acc-grid" style="margin-bottom:1rem;">
@@ -1526,10 +1526,6 @@ async function cancelTimeOffAdmin(requestId) {
     renderTimeOffAdmin();
     updatePendingBadge();
     toast('Request cancelled');
-    // If accruals tab is open, refresh it — cancelling a approved request restores balance
-    if (document.getElementById('tab-accruals')?.classList.contains('active')) {
-      renderAccrualEditor(); renderYTDSummary();
-    }
   } catch(e) {
     hideLoading();
     toast('Could not cancel: '+e.message);
@@ -1555,10 +1551,6 @@ async function confirmDeny() {
     renderTimeOffAdmin();
     toast('Request denied');
     updatePendingBadge();
-    // Refresh accrual editor if visible — denial doesn't change balance but keeps UI consistent
-    if (document.getElementById('tab-accruals')?.classList.contains('active')) {
-      renderAccrualEditor(); renderYTDSummary();
-    }
   } catch(e) {
     hideLoading();
     toast('Could not deny request: '+e.message);
@@ -1577,10 +1569,8 @@ async function decideTimeOff(requestId, decision) {
     renderTimeOffAdmin();
     toast('Request '+decision);
     updatePendingBadge();
-    // Refresh accrual editor if on accruals tab — balance changed
     if (document.getElementById('tab-accruals')?.classList.contains('active')) {
-      renderAccrualEditor();
-      renderYTDSummary();
+      renderAccrualEditor(); renderYTDSummary();
     }
   } catch(e) {
     hideLoading();
@@ -1690,13 +1680,7 @@ async function postAdjustment() {
   showAdjMsg(`✓ Posted ${hours}h ${type.replace(' (FT only)','')} for ${emp.first} ${emp.last} — accruals updated`,true);
   document.getElementById('adjDate').value='';
   document.getElementById('adjNote').value='';
-  renderAdjLog();
-  toast(`${type.replace(' (FT only)','')} posted`);
-  // Refresh accrual editor immediately so updated balance is visible
-  invalidateCache('accruals');
-  if (document.getElementById('tab-accruals')?.classList.contains('active')) {
-    renderAccrualEditor(); renderYTDSummary();
-  }
+  renderAdjLog(); toast(`${type.replace(' (FT only)','')} posted`);
 }
 function showAdjMsg(msg,ok){const el=document.getElementById('adjMsg');el.textContent=msg;el.style.color=ok?'#34A952':'#BD3531';el.style.display='block';setTimeout(()=>el.style.display='none',4000);}
 async function renderAdjLog() {
