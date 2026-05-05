@@ -1175,20 +1175,20 @@ function hideNotices() {
 
 // ── Time Off request functions ──
 async function renderTimeOffRequests() {
-  const requests = (await loadTimeOff(currentEmpId)).filter(r => r.empId === currentEmpId);
+  const requests = (await loadTimeOff(currentEmpId)).filter(r => (r.empId||r.empid) === currentEmpId);
   const el = document.getElementById('myTimeOffList');
   if (!el) return;
-  if (!requests.length) {
-    el.innerHTML = '<div class="empty-state">No requests yet.</div>';
-    return;
-  }
+  if (!requests.length) { el.innerHTML = '<div class="empty-state">No requests yet.</div>'; return; }
   const statusStyle = {
     pending:  'background:#FEF0B8;color:#5a3a00;',
     approved: 'background:#eaf2ec;color:#2d5a3d;',
     denied:   'background:#fef2f2;color:#BD3531;',
+    used:     'background:#e8eef5;color:#1e3a5f;',
+    cancelled:'background:#f0eeea;color:#888880;',
   };
+  const today = new Date().toISOString().slice(0,10);
   el.innerHTML = `<table class="log-table">
-    <thead><tr><th>Type</th><th>Dates</th><th>Amount</th><th>Status</th></tr></thead>
+    <thead><tr><th>Type</th><th>Dates</th><th>Amount</th><th>Status</th><th></th></tr></thead>
     <tbody>` +
     requests.slice().reverse().map(r => {
       const type   = r.type||'—';
@@ -1196,10 +1196,11 @@ async function renderTimeOffRequests() {
       const end    = String(r.endDate||r.enddate||start).slice(0,10);
       const amt    = r.amount||'—';
       const status = (r.status||'pending').toLowerCase();
+      const rid    = r.requestId||r.requestid||'';
       const note   = r.note||'';
-      // Extract denial reason from note if present
-      const denialReason = status==='denied' && note.includes('Denied:')
-        ? note.split('Denied:').pop().trim() : '';
+      const denialReason = status==='denied' && note.includes('Denied:') ? note.split('Denied:').pop().trim() : '';
+      // Can cancel if pending, or if approved and start date is in future
+      const canCancel = (status==='pending') || (status==='approved' && start > today);
       return `<tr>
         <td style="font-weight:500;">${type}</td>
         <td style="font-size:12px;">${start}${end&&end!==start?' – '+end:''}</td>
@@ -1208,9 +1209,27 @@ async function renderTimeOffRequests() {
           <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:99px;${statusStyle[status]||''}">${status.charAt(0).toUpperCase()+status.slice(1)}</span>
           ${denialReason?`<div style="font-size:11px;color:#b91c1c;margin-top:3px;">Reason: ${denialReason}</div>`:''}
         </td>
+        <td>${canCancel?`<button style="background:none;border:1.5px solid #e0ddd6;border-radius:6px;padding:2px 10px;font-size:11px;cursor:pointer;color:#888880;font-family:Lexend,sans-serif;" onclick="cancelTimeOff('${rid}','${type}','${start}')">Cancel</button>`:'—'}</td>
       </tr>`;
     }).join('') +
     `</tbody></table>`;
+}
+
+async function cancelTimeOff(requestId, type, startDate) {
+  if (!confirm(`Cancel your ${type} request for ${startDate}? This cannot be undone.`)) return;
+  showLoading('Cancelling…');
+  try {
+    await api('cancelTimeOff',{},{requestId});
+    _accrualsCache = null; // clear cache so balance refreshes
+    hideLoading();
+    toast('Request cancelled');
+    await renderTimeOffRequests();
+    await renderAccruals();
+    await updateEmpPendingBadge();
+  } catch(e) {
+    hideLoading();
+    toast('Could not cancel: '+e.message);
+  }
 }
 
 async function submitTimeOffRequest() {
@@ -1810,110 +1829,134 @@ async function renderAccruals() {
     acc = await loadAccruals(currentEmpId);
   } catch(e) {
     console.warn('Accruals not found, using defaults:', e.message);
-    acc = { vacation:{bal:0,max:120,used:0}, sick:{bal:0,max:200,used:0}, personal:{bal:0,max:16,used:0}, floatHoliday:{bal:0,max:8,used:0}, lwop:{bal:0,max:0,used:0}, jury:{used:0,events:0}, bereavement:{used:0,events:0} };
+    acc = null;
   }
-  if (!acc) acc = { vacation:{bal:0,max:120,used:0}, sick:{bal:0,max:200,used:0}, personal:{bal:0,max:16,used:0}, floatHoliday:{bal:0,max:8,used:0}, lwop:{bal:0,max:0,used:0}, jury:{used:0,events:0}, bereavement:{used:0,events:0} };
+  if (!acc) acc = { vacation:{bal:0,used:0}, sick:{bal:0,used:0}, personal:{bal:0,used:0}, floatHoliday:{bal:0,used:0}, lwop:{used:0}, jury:{used:0,events:0}, bereavement:{used:0,events:0} };
 
-  // Sick time: display balance as days.tenths e.g. 40h = 5.00 days, 41h = 5.14 days
-  // 1 day = 8 hours. Remaining hours converted to tenths via the sick table.
+  // Calculate pending and scheduled amounts from time-off requests
+  const requests = await loadTimeOff(currentEmpId).catch(()=>[]);
+  const today = new Date().toISOString().slice(0,10);
+  const pending = {}, scheduled = {};
+  ['vacation','sick','personal','floatHoliday','lwop'].forEach(k => { pending[k]=0; scheduled[k]=0; });
+  const typeKeyMap = {
+    'vacation':'vacation','sick time':'sick','sick':'sick',
+    'personal time':'personal','personal':'personal',
+    'floating holiday':'floatHoliday','float holiday':'floatHoliday',
+    'leave without pay':'lwop','lwop':'lwop',
+  };
+  requests.forEach(r => {
+    const status = (r.status||'').toLowerCase();
+    if (status !== 'pending' && status !== 'approved') return;
+    const key = typeKeyMap[(r.type||'').toLowerCase()];
+    if (!key) return;
+    const amt = parseFloat(String(r.amount||'0').replace(/[^0-9.]/g,''))||0;
+    const start = String(r.startDate||r.startdate||'').slice(0,10);
+    if (status === 'pending') pending[key] = +(pending[key]+amt).toFixed(2);
+    // Approved but not yet used (start date in future)
+    if (status === 'approved' && start > today) scheduled[key] = +(scheduled[key]+amt).toFixed(2);
+  });
+
   const SICK_TENTHS = [
-    {h:0, t:'.00'},{h:1, t:'.14'},{h:2, t:'.29'},{h:3, t:'.43'},
-    {h:3.5, t:'.50'},{h:4, t:'.57'},{h:5, t:'.71'},{h:6, t:'.86'},{h:7, t:'.86'},{h:8, t:'.00'},
+    {h:0,t:'.00'},{h:1,t:'.14'},{h:2,t:'.29'},{h:3,t:'.43'},
+    {h:3.5,t:'.50'},{h:4,t:'.57'},{h:5,t:'.71'},{h:6,t:'.86'},{h:7,t:'.86'},{h:8,t:'.00'},
   ];
   function sickToDays(hours) {
-    const wholeDays = Math.floor(hours / 8);
-    const remHours  = parseFloat((hours % 8).toFixed(2));
-    // Find closest entry in tenths table
+    const wholeDays = Math.floor(hours/8);
+    const remHours  = parseFloat((hours%8).toFixed(2));
     let closest = SICK_TENTHS[0];
-    SICK_TENTHS.forEach(e => {
-      if (Math.abs(e.h - remHours) < Math.abs(closest.h - remHours)) closest = e;
-    });
-    const tenths = closest.t === '.00' && remHours >= 7.5 ? '.00' : closest.t;
-    const dayCount = closest.t === '.00' && remHours >= 7.5 ? wholeDays + 1 : wholeDays;
-    return dayCount + tenths + ' days';
+    SICK_TENTHS.forEach(e => { if(Math.abs(e.h-remHours)<Math.abs(closest.h-remHours)) closest=e; });
+    const over = closest.t==='.00'&&remHours>=7.5;
+    return (over?wholeDays+1:wholeDays) + (over?'.00':closest.t) + ' days';
   }
 
   const types = [
-    { key:'vacation',     label:'Vacation',        icon:'🏖', color:'#2d5a3d', bg:'#eaf2ec', note:'taken in .25 day increments' },
-    { key:'sick',         label:'Sick time',        icon:'🏥', color:'#1e3a5f', bg:'#e8eef5', note:'FT: +8h on 1st of each month  ·  PT: +25h on Jan 1' },
-    { key:'personal',     label:'Personal time',    icon:'⭐', color:'#6b4c0f', bg:'#faf0dc', note:'taken in .25 day increments' },
-    { key:'floatHoliday', label:'Floating holiday', icon:'🎉', color:'#5a2d6b', bg:'#f2e8f5', note:'taken in .25 day increments' },
-    { key:'lwop',         label:'Leave w/o pay',    icon:'📋', color:'#4a4a45', bg:'#f0efea', note:'no accrual — hourly' },
+    { key:'vacation',     label:'Vacation',        icon:'🏖', color:'#2d5a3d', bg:'#eaf2ec', note:'taken in .25 day increments',   unit:'days' },
+    { key:'sick',         label:'Sick time',        icon:'🏥', color:'#1e3a5f', bg:'#e8eef5', note:'FT: +7h/month · PT: +25h Jan 1', unit:'h'    },
+    { key:'personal',     label:'Personal time',    icon:'⭐', color:'#6b4c0f', bg:'#faf0dc', note:'taken in .25 day increments',   unit:'days' },
+    { key:'floatHoliday', label:'Floating holiday', icon:'🎉', color:'#5a2d6b', bg:'#f2e8f5', note:'taken in .25 day increments',   unit:'days' },
+    { key:'lwop',         label:'Leave w/o pay',    icon:'📋', color:'#4a4a45', bg:'#f0efea', note:'no accrual — hourly',           unit:'h'    },
   ];
-
   const specialTypes = [
-    { key:'jury',         label:'Jury duty',        icon:'⚖️', color:'#1e3a5f', bg:'#e8eef5' },
-    { key:'bereavement',  label:'Bereavement',       icon:'🕊️', color:'#3d2842', bg:'#f2eaf5' },
+    { key:'jury',        label:'Jury duty',   icon:'⚖️', color:'#1e3a5f', bg:'#e8eef5' },
+    { key:'bereavement', label:'Bereavement', icon:'🕊️', color:'#3d2842', bg:'#f2eaf5' },
   ];
 
   document.getElementById('accrualGrid').innerHTML = types.map(t => {
-    const a = acc[t.key];
-    const pct = t.key === 'lwop' ? 0 : a.max > 0 ? Math.round(a.bal/a.max*100) : 0;
-    const balDisplay = t.key === 'sick' ? sickToDays(a.bal) : t.key === 'lwop' ? '—' : `${a.bal}`;
-    const subDisplay = t.key === 'sick'
-      ? `(${a.bal}h)`
-      : t.key === 'lwop'
-        ? `${a.used}h used this year`
-        : `of ${a.max} days`;
+    const a = acc[t.key] || {bal:0,used:0};
+    const isSick = t.key==='sick', isLwop = t.key==='lwop';
+    const balDisplay = isSick ? sickToDays(a.bal) : isLwop ? '—' : `${a.bal}`;
+    const p = pending[t.key]||0;
+    const s = scheduled[t.key]||0;
+    // Available = balance minus pending minus scheduled
+    const avail = isLwop ? null : Math.max(0, parseFloat(((a.bal||0) - p - s).toFixed(2)));
+    const availDisplay = isSick ? sickToDays(avail||0) : `${avail}`;
+
+    let subLines = '';
+    if (!isLwop) {
+      subLines += `<div style="margin-top:4px;font-size:12px;color:#34A952;font-weight:600;">Available: ${availDisplay} ${t.unit}</div>`;
+      if (p > 0) subLines += `<div style="font-size:11px;color:#c8980a;margin-top:1px;">⏳ ${p} ${t.unit} pending approval</div>`;
+      if (s > 0) subLines += `<div style="font-size:11px;color:#28749A;margin-top:1px;">📅 ${s} ${t.unit} scheduled (approved, upcoming)</div>`;
+    } else {
+      subLines += `<div style="margin-top:4px;font-size:12px;color:#888880;">${a.used||0}h used this year</div>`;
+    }
+
     return `<div class="accrual-row">
       <div class="accrual-icon" style="background:${t.bg};color:${t.color};">${t.icon}</div>
       <div class="accrual-info">
         <div class="accrual-name">${t.label}</div>
         <div style="font-size:11px;color:#888880;margin-top:2px;">${t.note}</div>
-        ${t.key !== 'lwop' ? `<div class="accrual-bar"><div class="accrual-fill" style="width:${pct}%;background:${t.color};"></div></div>` : ''}
+        ${subLines}
       </div>
       <div class="accrual-nums">
         <strong style="color:#34A952;">${balDisplay}</strong>
-        ${subDisplay}
+        ${!isLwop ? t.unit+' balance' : ''}
       </div>
     </div>`;
   }).join('') +
   `<div style="height:1px;background:#e0ddd6;margin:6px 0;"></div>
    <div class="section-title" style="margin-top:8px;margin-bottom:10px;color:#444440;">Special Leave</div>` +
   specialTypes.map(t => {
-    const a = acc[t.key];
+    const a = acc[t.key] || {used:0,events:0};
     return `<div class="accrual-row">
       <div class="accrual-icon" style="background:${t.bg};color:${t.color};">${t.icon}</div>
       <div class="accrual-info">
         <div class="accrual-name">${t.label}</div>
-        <div style="font-size:12px;color:#444440;margin-top:3px;">${a.events > 0 ? `${a.events} occurrence${a.events>1?'s':''} this year` : 'No occurrences this year'}</div>
+        <div style="font-size:12px;color:#444440;margin-top:3px;">${a.events>0?`${a.events} occurrence${a.events>1?'s':''} this year`:'No occurrences this year'}</div>
       </div>
-      <div class="accrual-nums">
-        <strong style="color:${t.color};">${a.used}h</strong>
-        used this year
-      </div>
+      <div class="accrual-nums"><strong style="color:${t.color};">${a.used}h</strong> used this year</div>
     </div>`;
   }).join('');
 
+  // Usage table — remove max column
   document.getElementById('accrualUsageTable').innerHTML =
-    `<thead><tr><th>Type</th><th>Increments</th><th>Used YTD</th><th>Balance</th></tr></thead>
+    `<thead><tr><th>Type</th><th>Increments</th><th>Used YTD</th><th>Balance</th><th>Available</th></tr></thead>
     <tbody>` +
     types.map(t => {
-      const a = acc[t.key];
-      const incrNote = t.key==='sick' ? '1h=.14, 2h=.29, 3h=.43, ½ day=.50, 4h=.57, 5h=.71, 6h=.86' :
-                       t.key==='lwop' ? 'hourly, no accrual' : '.25 / .50 / .75 / 1.00 days';
-      const balStr = t.key==='sick' ? `${a.bal}h` : t.key==='lwop' ? '—' : `${a.bal} days`;
-      const usedStr = t.key==='sick' ? `${a.used}h` : t.key==='lwop' ? `${a.used}h` : `${a.used} days`;
+      const a = acc[t.key]||{bal:0,used:0};
+      const isSick=t.key==='sick', isLwop=t.key==='lwop';
+      const incrNote = isSick?'1h=.14, 2h=.29, 3h=.43, ½day=.50, 4h=.57, 5h=.71, 6h=.86':isLwop?'hourly, no accrual':'.25 / .50 / .75 / 1.00 days';
+      const balStr  = isSick?`${a.bal}h`:isLwop?'—':`${a.bal} days`;
+      const usedStr = isSick||isLwop?`${a.used||0}h`:`${a.used||0} days`;
+      const p=pending[t.key]||0, s=scheduled[t.key]||0;
+      const avail = isLwop?'—':Math.max(0,parseFloat(((a.bal||0)-p-s).toFixed(2)))+(isSick?'h':' days');
       return `<tr>
         <td>${t.label}</td>
         <td style="font-size:11px;color:#444440;">${incrNote}</td>
-        <td style="color:${a.used>0?'#b84000':'#444440'};">${usedStr}</td>
+        <td style="color:${(a.used||0)>0?'#b84000':'#444440'};">${usedStr}</td>
         <td style="font-weight:500;color:#34A952;">${balStr}</td>
+        <td style="font-weight:600;color:#1a7a3a;">${avail}${p>0?` <span style="font-size:10px;color:#c8980a;">(−${p} pending)</span>`:''}${s>0?` <span style="font-size:10px;color:#28749A;">(−${s} sched)</span>`:''}</td>
       </tr>`;
     }).join('') +
     `<tr style="border-top:2px solid #e0ddd6;">
-      <td colspan="4" style="font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:#444440;padding-top:10px;font-weight:600;">Special Leave</td>
+      <td colspan="5" style="font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:#444440;padding-top:10px;font-weight:600;">Special Leave</td>
     </tr>` +
     specialTypes.map(t => {
-      const a = acc[t.key];
-      return `<tr>
-        <td>${t.label}</td>
-        <td style="font-size:11px;color:#444440;">event-based, hourly</td>
-        <td style="color:${a.used>0?'#1e3a5f':'#444440'};">${a.used}h</td>
-        <td style="font-weight:500;">—</td>
-      </tr>`;
-    }).join('') + `</tbody>`;
+      const a = acc[t.key]||{used:0,events:0};
+      return `<tr><td>${t.label}</td><td style="font-size:11px;color:#444440;">FT only</td><td colspan="3" style="color:#444440;">${a.used||0}h · ${a.events||0} occurrence${(a.events||0)!==1?'s':''}</td></tr>`;
+    }).join('') +
+    `</tbody>`;
 }
+
 
 // ══════════════════════════════════════════
 //  LIVE CLOCK TICK
