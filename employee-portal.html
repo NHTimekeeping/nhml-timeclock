@@ -1196,11 +1196,18 @@ async function renderTimeOffRequests() {
       const end    = String(r.endDate||r.enddate||start).slice(0,10);
       const amt    = r.amount||'—';
       const status = (r.status||'pending').toLowerCase();
+      const note   = r.note||'';
+      // Extract denial reason from note if present
+      const denialReason = status==='denied' && note.includes('Denied:')
+        ? note.split('Denied:').pop().trim() : '';
       return `<tr>
         <td style="font-weight:500;">${type}</td>
         <td style="font-size:12px;">${start}${end&&end!==start?' – '+end:''}</td>
         <td>${amt}</td>
-        <td><span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:99px;${statusStyle[status]||''}">${status.charAt(0).toUpperCase()+status.slice(1)}</span></td>
+        <td>
+          <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:99px;${statusStyle[status]||''}">${status.charAt(0).toUpperCase()+status.slice(1)}</span>
+          ${denialReason?`<div style="font-size:11px;color:#b91c1c;margin-top:3px;">Reason: ${denialReason}</div>`:''}
+        </td>
       </tr>`;
     }).join('') +
     `</tbody></table>`;
