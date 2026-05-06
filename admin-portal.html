@@ -736,6 +736,58 @@ textarea { resize: vertical; min-height: 70px; }
 </div>
 
 <!-- ═══════════ MODAL: EDIT PUNCH ═══════════ -->
+<div class="modal-overlay" id="modalTodayPunches">
+  <div class="modal" style="max-width:540px;">
+    <div class="modal-hdr">
+      <h3 id="todayPunchesTitle">Today's Punches</h3>
+      <button class="modal-close" onclick="closeModal('modalTodayPunches')">✕</button>
+    </div>
+    <div class="modal-body" id="todayPunchesBody"></div>
+    <div class="modal-foot">
+      <button class="btn btn-primary" onclick="openAddPunch()">+ Add Punch</button>
+      <button class="btn btn-ghost" onclick="closeModal('modalTodayPunches')">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalAddPunch">
+  <div class="modal" style="max-width:420px;">
+    <div class="modal-hdr">
+      <h3 id="addPunchTitle">Add Punch Entry</h3>
+      <button class="modal-close" onclick="closeModal('modalAddPunch')">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="fgrp">
+        <label class="field-lbl">Employee</label>
+        <input type="text" id="addPunchEmp" disabled style="background:#eee;">
+      </div>
+      <div class="frow">
+        <div><label class="field-lbl">Event type</label>
+          <select id="addPunchEvent">
+            <option>Punch In</option><option>Punch Out</option>
+            <option>Meal Break Out</option><option>Meal Break In</option>
+          </select>
+        </div>
+        <div><label class="field-lbl">Date</label><input type="date" id="addPunchDate"></div>
+      </div>
+      <div class="frow">
+        <div><label class="field-lbl">Time</label><input type="time" id="addPunchTime"></div>
+        <div><label class="field-lbl">Late?</label>
+          <select id="addPunchLate"><option value="false">No</option><option value="true">Yes — late</option></select>
+        </div>
+      </div>
+      <div class="fgrp">
+        <label class="field-lbl">Admin note <span style="color:#b84000;">*required</span></label>
+        <textarea id="addPunchNote" placeholder="e.g. Employee forgot to punch in — confirmed with supervisor"></textarea>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal('modalAddPunch')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveAddPunch()">Add Punch</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="modalPunch">
   <div class="modal">
     <div class="modal-hdr">
@@ -1068,10 +1120,14 @@ async function renderStats() {
 // ════════════════════════════════════════
 async function renderEmpTable() {
   const emps = await loadEmployees();
-  const punches = await loadAllPunchesAsMap();
+  // Always fetch fresh punches for today's status — don't use cache
   const today = new Date().toISOString().slice(0,10);
+  const freshPunches = await api('getAllPunches',{}).then(r=>r.data||[]);
+  invalidateCache('punches'); // keep cache in sync
+  const punchMap = {};
+  freshPunches.forEach(p=>{ if(!punchMap[p.empId]) punchMap[p.empId]=[]; punchMap[p.empId].push(p); });
   document.getElementById('empTbody').innerHTML = emps.length ? emps.map(e => {
-    const ep = (punches[e.id]||[]).filter(p=>p.date===today);
+    const ep = (punchMap[e.id]||[]).filter(p=>cleanDate(p.date)===today);
     const lastIn  = ep.filter(p=>p.event==='Punch In').pop();
     const lastOut = ep.filter(p=>p.event==='Punch Out').pop();
     const onMeal  = ep.filter(p=>p.event==='Meal Break Out').pop() && !ep.filter(p=>p.event==='Meal Break In').pop();
@@ -1087,7 +1143,7 @@ async function renderEmpTable() {
       <td>${e.dept}</td><td>${tPill}</td>
       <td style="font-family:'Lexend',sans-serif;letter-spacing:0.15em;font-weight:600;">${e.pin}</td>
       <td><span class="pill ${String(e.status).toLowerCase()==='active'?'pill-active':'pill-inactive'}">${e.status}</span></td>
-      <td>${sPill} ${lFlag}</td>
+      <td>${sPill} ${lFlag} <button class="btn btn-ghost btn-sm" style="margin-left:4px;font-size:10px;padding:1px 7px;" onclick="openTodayPunches('${e.id}')">Punches</button></td>
       <td><div style="display:flex;gap:6px;">
         <button class="btn btn-ghost btn-sm" onclick="openEditEmployee('${e.id}')">Edit</button>
         <button class="btn btn-red btn-sm" onclick="deleteEmployee('${e.id}')">×</button>
@@ -1204,6 +1260,98 @@ function downloadCSVTemplate() {
 // ════════════════════════════════════════
 //  PUNCH LOG
 // ════════════════════════════════════════
+// ════════════════════════════════════════
+//  TODAY'S PUNCHES MODAL (from employee table)
+// ════════════════════════════════════════
+let _todayPunchesEmpId = null;
+async function openTodayPunches(empId) {
+  _todayPunchesEmpId = empId;
+  const emps    = await loadEmployees();
+  const emp     = emps.find(e => e.id === empId);
+  const punches = await api('getAllPunches',{}).then(r=>r.data||[]);
+  invalidateCache('punches');
+  const today   = new Date().toISOString().slice(0,10);
+  const ep      = punches.filter(p => p.empId===empId && cleanDate(p.date)===today)
+    .sort((a,b) => (a.time||'').localeCompare(b.time||''));
+
+  document.getElementById('todayPunchesTitle').textContent =
+    `Today's Punches — ${emp ? emp.first+' '+emp.last : empId}`;
+
+  const evtColor = {'Punch In':'#2d7a4d','Punch Out':'#444440','Meal Break Out':'#28749A','Meal Break In':'#28749A'};
+  document.getElementById('todayPunchesBody').innerHTML = ep.length
+    ? `<table class="log-table" style="width:100%;">
+        <thead><tr><th>Event</th><th>Time</th><th>Late?</th><th>Note</th><th></th></tr></thead>
+        <tbody>` +
+        ep.map(p => {
+          const adminBadge = p.adminEdited === 'true' || p.adminEdited === true
+            ? `<span style="font-size:10px;background:#f2e8f5;color:#5a2d6b;border-radius:4px;padding:1px 5px;margin-left:4px;">admin</span>` : '';
+          return `<tr>
+            <td style="color:${evtColor[p.event]||'#444'};font-weight:500;">${p.event}${adminBadge}</td>
+            <td>${cleanTime(p.time)}</td>
+            <td>${String(p.isLate)==='true'?'<span class="pill pill-late">LATE</span>':'—'}</td>
+            <td style="font-size:12px;color:var(--ink3);max-width:140px;overflow:hidden;text-overflow:ellipsis;">${p.note||'—'}</td>
+            <td><button class="btn btn-ghost btn-sm" onclick="openPunchEditFromToday('${empId}','${p.punchId||''}')">Edit</button></td>
+          </tr>`;
+        }).join('') +
+        `</tbody></table>`
+    : `<div class="empty" style="padding:1.5rem 0;">No punches recorded today for this employee.</div>`;
+
+  openModal('modalTodayPunches');
+}
+
+async function openPunchEditFromToday(empId, punchId) {
+  closeModal('modalTodayPunches');
+  await openPunchEdit(empId, punchId);
+  // After saving, reopen today's punches
+  const origSave = savePunchEdit;
+}
+
+function openAddPunch() {
+  const empId = _todayPunchesEmpId;
+  if (!empId) return;
+  loadEmployees().then(emps => {
+    const emp = emps.find(e => e.id === empId);
+    document.getElementById('addPunchEmp').value  = emp ? emp.first+' '+emp.last : empId;
+    document.getElementById('addPunchDate').value = new Date().toISOString().slice(0,10);
+    document.getElementById('addPunchTime').value = '';
+    document.getElementById('addPunchEvent').value = 'Punch In';
+    document.getElementById('addPunchLate').value  = 'false';
+    document.getElementById('addPunchNote').value  = '';
+    openModal('modalAddPunch');
+  });
+}
+
+async function saveAddPunch() {
+  const note = document.getElementById('addPunchNote').value.trim();
+  if (!note) { toast('Admin note is required for added punches'); return; }
+  const time = document.getElementById('addPunchTime').value;
+  if (!time) { toast('Please enter a time'); return; }
+  const empId = _todayPunchesEmpId;
+  const emps  = await loadEmployees();
+  const emp   = emps.find(e => e.id === empId);
+  const punch = {
+    punchId:     'P-ADM-' + Date.now(),
+    empId,
+    empName:     emp ? emp.last+', '+emp.first : empId,
+    event:       document.getElementById('addPunchEvent').value,
+    date:        document.getElementById('addPunchDate').value,
+    time,
+    isLate:      document.getElementById('addPunchLate').value === 'true',
+    minsLate:    0,
+    adminEdited: true,
+    note:        `[Admin added ${new Date().toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}] ${note}`,
+  };
+  showLoading('Adding punch…');
+  await api('addPunch',{},{punch});
+  invalidateCache('punches');
+  hideLoading();
+  closeModal('modalAddPunch');
+  toast(`${punch.event} added for ${emp?emp.first:empId}`);
+  renderEmpTable();
+  renderPunchLog();
+  await openTodayPunches(empId);
+}
+
 let _editingPunch = null;
 async function renderPunchLog() {
   const emps = await loadEmployees();
@@ -1220,14 +1368,20 @@ async function renderPunchLog() {
   });
   rows.sort((a,b)=>(cleanDate(b.p.date)+cleanTime(b.p.time)).localeCompare(cleanDate(a.p.date)+cleanTime(a.p.time)));
   const evtColor={'Punch In':'#2d7a4d','Punch Out':'#444440','Meal Break Out':'#28749A','Meal Break In':'#28749A'};
-  document.getElementById('punchTbody').innerHTML = rows.length ? rows.map(({emp,p,i})=>`<tr>
-    <td>${emp.last}, ${emp.first[0]}.</td>
-    <td style="color:${evtColor[p.event]||'#444'};font-weight:500;">${p.event}${String(p.isLate)==='true'?'<span class="pill pill-late" style="margin-left:6px;">LATE</span>':''}</td>
-    <td>${cleanTime(p.time)}</td>
-    <td style="color:var(--ink3);">${cleanDate(p.date)}</td>
-    <td style="font-size:12px;color:var(--ink3);">${p.note||''}</td>
-    <td><button class="btn btn-ghost btn-sm" onclick="openPunchEdit('${emp.id}','${p.punchId||i}')">Edit</button></td>
-  </tr>`).join('') : `<tr><td colspan="6"><div class="empty">No punch records found.</div></td></tr>`;
+  document.getElementById('punchTbody').innerHTML = rows.length ? rows.map(({emp,p,i})=>{
+    const isAdminEdit = p.adminEdited === 'true' || p.adminEdited === true;
+    const adminBadge  = isAdminEdit
+      ? `<span style="font-size:10px;background:#f2e8f5;color:#5a2d6b;border-radius:4px;padding:1px 5px;margin-left:6px;font-weight:600;">✎ admin</span>`
+      : '';
+    return `<tr style="${isAdminEdit?'background:#fdf8ff;':''}">
+      <td>${emp.last}, ${emp.first[0]}.</td>
+      <td style="color:${evtColor[p.event]||'#444'};font-weight:500;">${p.event}${String(p.isLate)==='true'?'<span class="pill pill-late" style="margin-left:6px;">LATE</span>':''}${adminBadge}</td>
+      <td>${cleanTime(p.time)}</td>
+      <td style="color:var(--ink3);">${cleanDate(p.date)}</td>
+      <td style="font-size:12px;color:var(--ink3);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${p.note||''}">${p.note||''}</td>
+      <td><button class="btn btn-ghost btn-sm" onclick="openPunchEdit('${emp.id}','${p.punchId||i}')">Edit</button></td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="6"><div class="empty">No punch records found.</div></td></tr>`;
 }
 function clearPunchFilters() { document.getElementById('punchFilterEmp').value='ALL'; document.getElementById('punchFilterDate').value=''; renderPunchLog(); }
 async function openPunchEdit(empId, punchId) {
@@ -1247,19 +1401,26 @@ async function openPunchEdit(empId, punchId) {
 }
 async function savePunchEdit() {
   if (!_editingPunch) return;
+  const rawNote = document.getElementById('punchEditNote').value.trim();
+  const stamp   = `[Admin edited ${new Date().toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}]`;
   const punch = {
-    punchId: _editingPunch.punchId, empId: _editingPunch.empId,
-    event: document.getElementById('punchEditEvent').value,
-    date:  document.getElementById('punchEditDate').value,
-    time:  document.getElementById('punchEditTime').value,
-    isLate: document.getElementById('punchEditLate').value==='true',
-    note:  document.getElementById('punchEditNote').value,
+    punchId:     _editingPunch.punchId,
+    empId:       _editingPunch.empId,
+    event:       document.getElementById('punchEditEvent').value,
+    date:        document.getElementById('punchEditDate').value,
+    time:        document.getElementById('punchEditTime').value,
+    isLate:      document.getElementById('punchEditLate').value === 'true',
+    note:        rawNote ? `${stamp} ${rawNote}` : stamp,
     adminEdited: true,
   };
   showLoading('Saving…');
   await api('updatePunch',{},{punch});
   invalidateCache('punches');
-  hideLoading(); closeModal('modalPunch'); renderPunchLog(); renderStats(); toast('Punch updated');
+  hideLoading();
+  closeModal('modalPunch');
+  renderPunchLog();
+  renderEmpTable();
+  toast('Punch updated');
 }
 async function deletePunchEntry() {
   if (!_editingPunch||!confirm('Delete this punch entry?')) return;
