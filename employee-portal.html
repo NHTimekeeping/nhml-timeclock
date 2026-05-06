@@ -1064,6 +1064,12 @@ function persistPunch(empId, entry) {
   const timeKey = now.toTimeString().slice(0,5);
   const punch   = { ...entry, empId, date: dateKey, time: timeKey, rawTs: undefined };
   delete punch.rawTs;
+  // Store boolean flags as Yes/No for readability in the sheet
+  const boolToYesNo = v => v === true || v === 'true' ? 'Yes' : (v === false || v === 'false' ? 'No' : v);
+  punch.isLate       = boolToYesNo(punch.isLate);
+  punch.isMealLate   = boolToYesNo(punch.isMealLate);
+  punch.isAdjustment = boolToYesNo(punch.isAdjustment);
+  punch.adminEdited  = boolToYesNo(punch.adminEdited);
   savePunch(punch).catch(err => console.error('Punch save failed:', err));
 }
 // ══════════════════════════════════════════
