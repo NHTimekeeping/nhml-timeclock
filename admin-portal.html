@@ -924,38 +924,23 @@ async function postPNW(rec) {
   return r;
 }
 
-// Rounds raw worked minutes to tenths-of-an-hour per official shift rounding table.
-// 0–5 min → 0.0,  6–11 → 0.1,  12–17 → 0.2, ..., 54–59 → 0.9, 60+ → 1.0
-// Apply to the sub-hour remainder only; full hours pass through unchanged.
 function minsToTenthsShift(mins) {
   const m = Math.round(mins);
-  if (m < 6)   return 0;
-  if (m <= 11) return 0.1;
-  if (m <= 17) return 0.2;
-  if (m <= 23) return 0.3;
-  if (m <= 29) return 0.4;
-  if (m <= 35) return 0.5;
-  if (m <= 41) return 0.6;
-  if (m <= 47) return 0.7;
-  if (m <= 53) return 0.8;
-  if (m <= 59) return 0.9;
-  return 1.0;
+  if (m < 6)   return 0;   if (m <= 11) return 0.1; if (m <= 17) return 0.2;
+  if (m <= 23) return 0.3; if (m <= 29) return 0.4; if (m <= 35) return 0.5;
+  if (m <= 41) return 0.6; if (m <= 47) return 0.7; if (m <= 53) return 0.8;
+  if (m <= 59) return 0.9; return 1.0;
 }
 function workedMinsToTenths(totalMins) {
-  // Convert total raw minutes to rounded tenths-of-hours.
-  // Full hours are exact; only the sub-hour remainder is rounded.
-  const fullHours = Math.floor(totalMins / 60);
-  const remMins   = totalMins % 60;
-  return parseFloat((fullHours + minsToTenthsShift(remMins)).toFixed(1));
+  return parseFloat((Math.floor(totalMins/60) + minsToTenthsShift(totalMins%60)).toFixed(1));
 }
 function cleanTimeRaw(val) {
   if (!val||val==='') return '00:00';
-  const s = String(val);
+  const s=String(val);
   if (s.includes('T')) { const t=s.split('T')[1]||''; return t.replace('Z','').slice(0,5)||'00:00'; }
   if (s.match(/^\d{1,2}:\d{2}/)) return s.slice(0,5).padStart(5,'0');
   return '00:00';
 }
-
 function fmt12(h,m) {
   const ap = h<12?'AM':'PM';
   return (h%12||12)+':'+String(m).padStart(2,'0')+' '+ap;
@@ -1326,12 +1311,89 @@ async function renderYTDSummary() {
     const emps = validEmps.filter(e => filterVal === 'ALL' || e.id === filterVal);
 
     let html = '';
-    // Load ALL accruals in one call instead of one per employee
-    let allAcc = {};
+    // Load ALL accruals, time-off requests, and adjustments in parallel
+    let allAcc = {}, allTimeOff = [], allAdjs = [];
     try {
-      const accR = await api('getAccruals', {});
-      allAcc = accR.data || {};
-    } catch(e) { console.warn('Could not load accruals:', e.message); }
+      const [accR, toR, adjR] = await Promise.all([
+        api('getAccruals', {}),
+        api('getAllTimeOff', {}),
+        api('getAdjustments', {}),
+      ]);
+      allAcc     = accR.data  || {};
+      allTimeOff = toR.data   || [];
+      allAdjs    = adjR.data  || [];
+    } catch(e) { console.warn('Could not load accrual data:', e.message); }
+
+    // Map time-off type label → accrual key
+    const TO_KEY_MAP = {
+      'vacation':'vacation','personal time':'personal','personal':'personal',
+      'floating holiday':'floatHoliday','float holiday':'floatHoliday',
+      'sick time':'sick','sick':'sick',
+      'leave without pay':'lwop','lwop':'lwop',
+      'bereavement':'bereavement','jury duty':'jury',
+    };
+
+    function fmtDate(s) {
+      if (!s) return '';
+      const d = new Date(String(s).slice(0,10)+'T12:00:00');
+      return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+    }
+    function historyRows(empId, accrualKey, unit) {
+      // Time-off requests (approved or used)
+      const toRows = allTimeOff.filter(r =>
+        r.empId === empId &&
+        TO_KEY_MAP[String(r.type||'').toLowerCase()] === accrualKey &&
+        (r.status === 'approved' || r.status === 'used' || r.status === 'pending')
+      ).map(r => ({
+        date: r.startDate,
+        dateEnd: r.endDate !== r.startDate ? r.endDate : null,
+        amount: parseFloat(r.amount)||0,
+        source: r.status === 'pending' ? 'Pending request' : 'Time off',
+        status: r.status,
+      }));
+      // Manual adjustments
+      const adjTypeMap = {
+        vacation:'Vacation day', personal:'Personal day',
+        floatHoliday:'Floating holiday', sick:'Sick time',
+        lwop:'Leave without pay', bereavement:'Bereavement', jury:'Jury duty',
+      };
+      const adjRows = allAdjs.filter(r =>
+        r.empId === empId &&
+        String(r.type||'').replace(' (FT only)','') === (adjTypeMap[accrualKey]||'')
+      ).map(r => ({
+        date: r.date,
+        dateEnd: null,
+        amount: parseFloat(r.hours)||0,
+        source: 'Manual adjustment',
+        status: 'posted',
+      }));
+
+      const all = [...toRows, ...adjRows].sort((a,b) => (a.date||'') < (b.date||'') ? 1 : -1);
+      if (!all.length) return '';
+
+      const rows = all.map(r => {
+        const dateStr = r.dateEnd
+          ? `${fmtDate(r.date)} – ${fmtDate(r.dateEnd)}`
+          : fmtDate(r.date);
+        const amtStr = `${r.amount} ${unit}`;
+        const statusColor = r.status === 'pending' ? '#b84000' : '#444440';
+        const sourceStyle = r.source === 'Manual adjustment' ? 'color:#5a2d6b;' : '';
+        return `<tr style="font-size:12px;">
+          <td style="padding:3px 8px;color:#444440;">${dateStr}</td>
+          <td style="padding:3px 8px;font-weight:500;">${amtStr}</td>
+          <td style="padding:3px 8px;${sourceStyle}color:${statusColor};">${r.source}${r.status==='pending'?' (pending)':''}</td>
+        </tr>`;
+      }).join('');
+
+      return `<table style="width:100%;border-collapse:collapse;margin:4px 0 8px 36px;">
+        <thead><tr style="font-size:11px;color:var(--ink3);">
+          <th style="padding:2px 8px;text-align:left;font-weight:500;">Date</th>
+          <th style="padding:2px 8px;text-align:left;font-weight:500;">Amount</th>
+          <th style="padding:2px 8px;text-align:left;font-weight:500;">Source</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+    }
 
     for (const emp of emps) {
       const acc = allAcc[emp.id] || null;
@@ -1355,7 +1417,8 @@ async function renderYTDSummary() {
           const a = acc[t.key] || {bal:0, used:0};
           const usedColor = t.warn && a.used > 0 ? '#b84000' : t.color;
           const balTxt = t.key==='sick' ? `${a.bal}h available` : t.key==='lwop' ? '—' : `${a.bal} days left`;
-          html += `<div class="accrual-row">
+          const hist = historyRows(emp.id, t.key, t.unit);
+          html += `<div class="accrual-row" style="flex-wrap:wrap;">
             <div class="accrual-icon" style="background:${t.bg};color:${t.color};">${t.icon}</div>
             <div class="accrual-info">
               <div class="accrual-name">${t.label}</div>
@@ -1365,21 +1428,24 @@ async function renderYTDSummary() {
               <strong style="color:${usedColor};">${a.used} ${t.unit} used</strong>
               ${balTxt}
             </div>
+            ${hist ? `<div style="width:100%;">${hist}</div>` : ''}
           </div>`;
         });
         html += `<div style="height:1px;background:var(--border);margin:4px 0;"></div>`;
         SPECIAL.forEach(t => {
           const a = acc[t.key] || {used:0, events:0};
-          html += `<div class="accrual-row">
+          const hist = historyRows(emp.id, t.key, 'days');
+          html += `<div class="accrual-row" style="flex-wrap:wrap;">
             <div class="accrual-icon" style="background:${t.bg};color:${t.color};">${t.icon}</div>
             <div class="accrual-info">
               <div class="accrual-name">${t.label}</div>
               <div class="accrual-note">${a.events>0?`${a.events} occurrence${a.events!==1?'s':''} this year`:'No occurrences this year'}</div>
             </div>
             <div class="accrual-nums">
-              <strong style="color:${t.color};">${a.used}h</strong>
+              <strong style="color:${t.color};">${a.used} days</strong>
               used this year
             </div>
+            ${hist ? `<div style="width:100%;">${hist}</div>` : ''}
           </div>`;
         });
       }
@@ -1423,22 +1489,26 @@ async function renderAccrualEditor() {
   <div class="section-title">Sick Time <span style="font-weight:400;color:var(--ink3);">1h=.14, 2h=.29, 3h=.43, ½day=.50, 4h=.57, 5h=.71, 6h=.86</span></div>
   <div class="acc-grid" style="margin-bottom:1rem;">
     <div class="acc-card"><div class="acc-card-lbl">Balance (hours)</div><input type="number" step="0.01" id="acc_sick_bal" value="${acc.sick?.bal||0}"></div>
+    
     <div class="acc-card"><div class="acc-card-lbl">Deduct used time</div><select id="acc_sick_deduct"><option value="">— select —</option>${sickDeductOpts}</select>
     <div style="font-size:11px;color:var(--ink3);margin-top:4px;">Used YTD: <strong>${acc.sick?.used||0}</strong></div></div>
   </div>
   <div class="section-title">Vacation <span style="font-weight:400;color:var(--ink3);">¼, ½, ¾, full day increments</span></div>
   <div class="acc-grid" style="margin-bottom:1rem;">
     <div class="acc-card"><div class="acc-card-lbl">Balance</div><select id="acc_vacation_bal">${qSel(acc.vacation?.bal||0)}</select></div>
+    
     <div class="acc-card"><div class="acc-card-lbl">Used YTD</div><select id="acc_vacation_used">${qSel(acc.vacation?.used||0)}</select></div>
   </div>
   <div class="section-title">Personal Time <span style="font-weight:400;color:var(--ink3);">¼, ½, ¾, full day</span></div>
   <div class="acc-grid" style="margin-bottom:1rem;">
     <div class="acc-card"><div class="acc-card-lbl">Balance</div><select id="acc_personal_bal">${qSel(acc.personal?.bal||0)}</select></div>
+    
     <div class="acc-card"><div class="acc-card-lbl">Used YTD</div><select id="acc_personal_used">${qSel(acc.personal?.used||0)}</select></div>
   </div>
   <div class="section-title">Floating Holiday <span style="font-weight:400;color:var(--ink3);">¼, ½, ¾, full day</span></div>
   <div class="acc-grid" style="margin-bottom:1rem;">
     <div class="acc-card"><div class="acc-card-lbl">Balance</div><select id="acc_floatHoliday_bal">${qSel(acc.floatHoliday?.bal||0)}</select></div>
+    
     <div class="acc-card"><div class="acc-card-lbl">Used YTD</div><select id="acc_floatHoliday_used">${qSel(acc.floatHoliday?.used||0)}</select></div>
   </div>
   <div class="section-title">Leave Without Pay <span style="font-weight:400;color:var(--ink3);">no accrual — enter hours directly</span></div>
@@ -1595,8 +1665,9 @@ async function decideTimeOff(requestId, decision) {
     renderTimeOffAdmin();
     toast('Request '+decision);
     updatePendingBadge();
+    renderYTDSummary();
     if (document.getElementById('tab-accruals')?.classList.contains('active')) {
-      renderAccrualEditor(); renderYTDSummary();
+      renderAccrualEditor();
     }
   } catch(e) {
     hideLoading();
@@ -1704,10 +1775,16 @@ async function postAdjustment() {
   showLoading('Posting adjustment…');
   await postAdjustmentAPI({adjId:'ADJ-'+Date.now(),empId,empName:emp.last+', '+emp.first,type:type.replace(' (FT only)',''),date,hours:String(hours),period:period||'',note,postedAt:new Date().toISOString()});
   hideLoading();
-  showAdjMsg(`✓ Posted ${hours}h ${type.replace(' (FT only)','')} for ${emp.first} ${emp.last} — accruals updated`,true);
+  showAdjMsg(`✓ Posted ${hours}${['Vacation day','Personal day','Floating holiday','Bereavement','Jury duty'].includes(type.replace(' (FT only)',''))?'d':'h'} ${type.replace(' (FT only)','')} for ${emp.first} ${emp.last} — accruals updated`,true);
   document.getElementById('adjDate').value='';
   document.getElementById('adjNote').value='';
-  renderAdjLog(); toast(`${type.replace(' (FT only)','')} posted`);
+  renderAdjLog();
+  toast(`${type.replace(' (FT only)','')} posted`);
+  // Refresh accrual displays immediately so updated balance is visible
+  renderYTDSummary();
+  if (document.getElementById('tab-accruals')?.classList.contains('active')) {
+    renderAccrualEditor();
+  }
 }
 function showAdjMsg(msg,ok){const el=document.getElementById('adjMsg');el.textContent=msg;el.style.color=ok?'#34A952':'#BD3531';el.style.display='block';setTimeout(()=>el.style.display='none',4000);}
 async function renderAdjLog() {
@@ -1850,61 +1927,38 @@ async function buildBiWeeklyRows(dates){
   const allPA=await api('getAllPunches',{}).then(r=>r.data||[]);
   const pu={}; allPA.forEach(p=>{if(!pu[p.empId])pu[p.empId]=[];pu[p.empId].push(p);});
   const rows=[['Emp ID','Last','First','Dept','Type','Date','Day','In','Out','Meal Out','Meal In','Reg Hrs','OT','Holiday','Closure','Late?','Note']];
-
-  // Split the 12 Mon-Sat dates into two 6-day weeks
-  const week1Dates = dates.slice(0,6);
-  const week2Dates = dates.slice(6);
-
-  const OT_THRESHOLD  = 35;   // FT weekly scheduled hours
-  const OT_MIN_EXCESS = 1.0;  // OT only when excess >= 1 full hour
-
+  const week1Dates=dates.slice(0,6), week2Dates=dates.slice(6);
+  const OT_THRESHOLD=35, OT_MIN_EXCESS=1.0;
   emps.forEach(emp=>{
-    const ep = pu[emp.id]||[];
-    const isFT = String(emp.empType||'').toLowerCase() === 'full-time';
-
-    [week1Dates, week2Dates].forEach(weekDates=>{
-      // First pass: calculate daily tenths for this week
-      const dailyTenths = {};
+    const ep=pu[emp.id]||[];
+    const isFT=String(emp.empType||'').toLowerCase()==='full-time';
+    [week1Dates,week2Dates].forEach(weekDates=>{
+      const dailyTenths={};
       weekDates.forEach(date=>{
-        const dp  = ep.filter(p=>cleanDate(p.date)===date);
-        const pI  = dp.find(p=>p.event==='Punch In');
-        const pO  = dp.find(p=>p.event==='Punch Out');
-        const mO  = dp.find(p=>p.event==='Meal Break Out');
-        const mI  = dp.find(p=>p.event==='Meal Break In');
-        if (!pI || !pO) { dailyTenths[date] = 0; return; }
-        const inMs   = new Date(date+'T'+(cleanTimeRaw(pI.time)||'00:00')) - 0;
-        const outMs  = new Date(date+'T'+(cleanTimeRaw(pO.time)||'00:00')) - 0;
-        const mealMs = (mO && mI)
-          ? (new Date(date+'T'+(cleanTimeRaw(mI.time)||'00:00')) - new Date(date+'T'+(cleanTimeRaw(mO.time)||'00:00')))
-          : 0;
-        const rawMins = Math.max(0, Math.round((outMs - inMs - mealMs) / 60000));
-        dailyTenths[date] = workedMinsToTenths(rawMins);
+        const dp=ep.filter(p=>cleanDate(p.date)===date);
+        const pI=dp.find(p=>p.event==='Punch In'),pO=dp.find(p=>p.event==='Punch Out');
+        const mO=dp.find(p=>p.event==='Meal Break Out'),mI=dp.find(p=>p.event==='Meal Break In');
+        if(!pI||!pO){dailyTenths[date]=0;return;}
+        const inMs=new Date(date+'T'+cleanTimeRaw(pI.time))-0;
+        const outMs=new Date(date+'T'+cleanTimeRaw(pO.time))-0;
+        const mealMs=(mO&&mI)?(new Date(date+'T'+cleanTimeRaw(mI.time))-new Date(date+'T'+cleanTimeRaw(mO.time))):0;
+        dailyTenths[date]=workedMinsToTenths(Math.max(0,Math.round((outMs-inMs-mealMs)/60000)));
       });
-
-      // Weekly total tenths and OT
-      const weekTotal = parseFloat(weekDates.reduce((s,d)=>s+(dailyTenths[d]||0),0).toFixed(1));
-      const weekOT    = (isFT && weekTotal >= OT_THRESHOLD + OT_MIN_EXCESS)
-        ? parseFloat((weekTotal - OT_THRESHOLD).toFixed(1))
-        : 0;
-      const lastDate  = weekDates[weekDates.length - 1]; // Saturday — OT goes on last day
-
-      // Second pass: build rows
+      const weekTotal=parseFloat(weekDates.reduce((s,d)=>s+(dailyTenths[d]||0),0).toFixed(1));
+      const weekOT=(isFT&&weekTotal>=OT_THRESHOLD+OT_MIN_EXCESS)?parseFloat((weekTotal-OT_THRESHOLD).toFixed(1)):0;
+      const lastDate=weekDates[weekDates.length-1];
       weekDates.forEach(date=>{
-        const dp   = ep.filter(p=>cleanDate(p.date)===date);
-        const pI   = dp.find(p=>p.event==='Punch In');
-        const pO   = dp.find(p=>p.event==='Punch Out');
-        const mO   = dp.find(p=>p.event==='Meal Break Out');
-        const mI   = dp.find(p=>p.event==='Meal Break In');
-        const adjs = dp.filter(p=>p.isAdjustment);
-        if (!pI&&!pO&&!adjs.length) return;
-        const day  = new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short'});
-        const note = dp.filter(p=>p.adminEdited).map(p=>p.note).filter(Boolean).join('; ');
-        const regH = dailyTenths[date]||'';
-        const otH  = (date===lastDate && weekOT>0) ? weekOT : '';
+        const dp=ep.filter(p=>cleanDate(p.date)===date);
+        const pI=dp.find(p=>p.event==='Punch In'),pO=dp.find(p=>p.event==='Punch Out');
+        const mO=dp.find(p=>p.event==='Meal Break Out'),mI=dp.find(p=>p.event==='Meal Break In');
+        const adjs=dp.filter(p=>p.isAdjustment);
+        if(!pI&&!pO&&!adjs.length)return;
+        const day=new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short'});
+        const note=dp.filter(p=>p.adminEdited).map(p=>p.note).filter(Boolean).join('; ');
         rows.push([emp.id,emp.last,emp.first,emp.dept,emp.empType||'',date,day,
           pI?cleanTime(pI.time):'',pO?cleanTime(pO.time):'',
           mO?cleanTime(mO.time):'',mI?cleanTime(mI.time):'',
-          regH, otH,
+          dailyTenths[date]||'',date===lastDate&&weekOT>0?weekOT:'',
           adjs.find(p=>p.event==='Holiday Pay')?.hours||'',
           adjs.find(p=>p.event==='Library Closure')?.hours||'',
           pI&&String(pI.isLate)==='true'?'YES':'',note]);
