@@ -1365,9 +1365,9 @@ async function saveAddPunch() {
     event:       document.getElementById('addPunchEvent').value,
     date:        document.getElementById('addPunchDate').value,
     time,
-    isLate:      document.getElementById('addPunchLate').value === 'true',
+    isLate:      document.getElementById('addPunchLate').value === 'true' ? 'Yes' : 'No',
     minsLate:    0,
-    adminEdited: true,
+    adminEdited: 'Yes',
     note:        `[Admin added ${new Date().toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}] ${note}`,
   };
   showLoading('Adding punch…');
@@ -1438,9 +1438,9 @@ async function savePunchEdit() {
     event:       document.getElementById('punchEditEvent').value,
     date:        document.getElementById('punchEditDate').value,
     time:        document.getElementById('punchEditTime').value,
-    isLate:      document.getElementById('punchEditLate').value === 'true',
+    isLate:      document.getElementById('punchEditLate').value === 'true' ? 'Yes' : 'No',
     note:        rawNote ? `${stamp} ${rawNote}` : stamp,
-    adminEdited: true,
+    adminEdited: 'Yes',
   };
   showLoading('Saving…');
   await api('updatePunch',{},{punch});
@@ -2080,7 +2080,13 @@ async function fillPayPeriodTab(){
       r=await api('fillPayPeriod',{},{periodStart:startStr,yearDigits:'4'});
     }
     hideLoading();
-    if(r.ok){msg.textContent=`✓ Filled tab "${r.tab}" for ${r.employees} employees`;msg.style.color='#34A952';}
+    if(r.ok){
+      const detail = r.punchesInPeriod !== undefined
+        ? ` — ${r.punchesInPeriod} of ${r.totalPunches} punches in period${r.punchesInPeriod===0 ? ' (punch dates found: '+JSON.stringify(r.samplePunchDates)+')' : ''}`
+        : '';
+      msg.textContent=`✓ Filled tab "${r.tab}" for ${r.employees} employees${detail}`;
+      msg.style.color=r.punchesInPeriod===0?'#BD7700':'#34A952';
+    }
     else{msg.textContent='Error: '+(r.error||'Unknown');msg.style.color='#BD3531';}
     msg.style.display='block'; setTimeout(()=>msg.style.display='none',5000);
   }catch(e){hideLoading();msg.textContent='Failed: '+e.message;msg.style.color='#BD3531';msg.style.display='block';}
