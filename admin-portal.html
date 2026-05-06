@@ -1424,9 +1424,9 @@ async function renderYTDSummary() {
               <div class="accrual-name">${t.label}</div>
               <div class="accrual-note">${t.note}</div>
             </div>
-            <div class="accrual-nums">
-              <strong style="color:${usedColor};">${a.used} ${t.unit} used</strong>
-              ${balTxt}
+            <div class="accrual-nums" style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;">
+              <div><strong style="font-size:1.05rem;color:#b84000;">${a.used} ${t.unit}</strong><span style="font-size:0.75rem;color:#888880;"> used</span></div>
+              <div><strong style="font-size:1.05rem;color:#34A952;">${balTxt.replace(' available','').replace(' days left','').replace(' left','')}</strong><span style="font-size:0.75rem;color:#888880;"> ${t.key==='sick'?'available':'days left'}</span></div>
             </div>
             ${hist ? `<div style="width:100%;">${hist}</div>` : ''}
           </div>`;
@@ -1441,9 +1441,8 @@ async function renderYTDSummary() {
               <div class="accrual-name">${t.label}</div>
               <div class="accrual-note">${a.events>0?`${a.events} occurrence${a.events!==1?'s':''} this year`:'No occurrences this year'}</div>
             </div>
-            <div class="accrual-nums">
-              <strong style="color:${t.color};">${a.used} days</strong>
-              used this year
+            <div class="accrual-nums" style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;">
+              <div><strong style="font-size:1.05rem;color:#b84000;">${a.used} day${a.used!==1?'s':''}</strong><span style="font-size:0.75rem;color:#888880;"> used</span></div>
             </div>
             ${hist ? `<div style="width:100%;">${hist}</div>` : ''}
           </div>`;
