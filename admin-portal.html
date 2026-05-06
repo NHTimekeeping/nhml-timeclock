@@ -679,12 +679,12 @@ textarea { resize: vertical; min-height: 70px; }
 
 <!-- ═══════════ MODAL: EXPORT PREVIEW ═══════════ -->
 <div class="modal-overlay" id="modalExportPreview" style="align-items:flex-start;padding-top:2rem;">
-  <div class="modal" style="max-width:900px;max-height:85vh;">
+  <div class="modal" style="max-width:900px;height:85vh;display:flex;flex-direction:column;overflow:hidden;">
     <div class="modal-hdr">
       <h3 id="previewTitle">Preview</h3>
       <button class="modal-close" onclick="closeModal('modalExportPreview')">✕</button>
     </div>
-    <div class="modal-body" style="padding:0;overflow-x:auto;">
+    <div class="modal-body" style="padding:0;overflow:auto;flex:1;min-height:0;">
       <div id="previewContent" style="padding:1rem;font-size:12px;"></div>
     </div>
     <div class="modal-foot">
@@ -1096,12 +1096,16 @@ function switchTab(name) {
 //  STATS
 // ════════════════════════════════════════
 async function renderStats() {
-  const emps = await loadEmployees();
-  const punches = await loadAllPunchesAsMap();
+  const emps  = await loadEmployees();
+  // Always fetch fresh punches — don't use cache so stats are always current
+  const allP  = await api('getAllPunches',{}).then(r=>r.data||[]);
+  invalidateCache('punches');
+  const pmap  = {};
+  allP.forEach(p=>{ if(!pmap[p.empId]) pmap[p.empId]=[]; pmap[p.empId].push(p); });
   const today = new Date().toISOString().slice(0,10);
   let clockedIn=0, lateToday=0, punchCountToday=0;
   emps.forEach(e => {
-    const ep = (punches[e.id]||[]).filter(p=>p.date===today);
+    const ep = (pmap[e.id]||[]).filter(p=>cleanDate(p.date)===today);
     punchCountToday += ep.length;
     const lastIn  = ep.filter(p=>p.event==='Punch In').pop();
     const lastOut = ep.filter(p=>p.event==='Punch Out').pop();
@@ -1300,10 +1304,9 @@ async function openTodayPunches(empId) {
 }
 
 async function openPunchEditFromToday(empId, punchId) {
+  // Keep _todayPunchesEmpId set so savePunchEdit knows to reopen the today modal
   closeModal('modalTodayPunches');
   await openPunchEdit(empId, punchId);
-  // After saving, reopen today's punches
-  const origSave = savePunchEdit;
 }
 
 function openAddPunch() {
@@ -1419,15 +1422,24 @@ async function savePunchEdit() {
   hideLoading();
   closeModal('modalPunch');
   renderPunchLog();
+  renderStats();
   renderEmpTable();
   toast('Punch updated');
+  // Re-open today's punches modal if we came from there
+  if (_todayPunchesEmpId) openTodayPunches(_todayPunchesEmpId);
 }
 async function deletePunchEntry() {
   if (!_editingPunch||!confirm('Delete this punch entry?')) return;
   showLoading('Deleting…');
   await api('deletePunch',{},{punchId:_editingPunch.punchId});
   invalidateCache('punches');
-  hideLoading(); closeModal('modalPunch'); renderPunchLog(); renderStats(); toast('Punch deleted');
+  hideLoading();
+  closeModal('modalPunch');
+  renderPunchLog();
+  renderStats();
+  renderEmpTable();
+  toast('Punch deleted');
+  if (_todayPunchesEmpId) openTodayPunches(_todayPunchesEmpId);
 }
 
 // ════════════════════════════════════════
