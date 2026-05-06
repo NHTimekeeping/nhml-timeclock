@@ -2002,9 +2002,16 @@ async function exportAdjCSV() {
 // ════════════════════════════════════════
 // ── Pay period helpers — END DATE based ──
 function saturdayOfCurrentPeriod() {
-  const d = new Date(); const day = d.getDay();
-  const daysToSat = (6 - day + 7) % 7;
-  const sat = new Date(d); sat.setDate(d.getDate() + daysToSat); sat.setHours(0,0,0,0); return sat;
+  // Biweekly schedule anchored to Sat 2026-05-16.
+  // Walk forward in 14-day steps until we reach a period-end Saturday >= today.
+  const anchor = new Date('2026-05-16T12:00:00');
+  const today  = new Date(); today.setHours(0,0,0,0);
+  let sat = new Date(anchor);
+  // If today is past anchor, step forward until sat >= today
+  while (sat < today) sat = new Date(sat.getTime() + 14*86400000);
+  // If today is before anchor, sat is already >= today (anchor itself)
+  sat.setHours(0,0,0,0);
+  return sat;
 }
 function periodDatesFromEnd(endDateStr) {
   const end = new Date(endDateStr+'T12:00:00');
@@ -2057,7 +2064,12 @@ async function fillPayPeriodTab(){
   const startStr=pd.start.toISOString().slice(0,10);
   showLoading('Filling pay period tab…');
   try{
-    const r=await api('fillPayPeriod',{},{periodStart:startStr});
+    // Try both 2-digit year (WE 5-16-26) and 4-digit year (WE 5-16-2026) tab name formats
+    let r=await api('fillPayPeriod',{},{periodStart:startStr});
+    if(!r.ok && r.error && r.error.includes('Tab not found')){
+      // Try again with 4-digit year override
+      r=await api('fillPayPeriod',{},{periodStart:startStr,yearDigits:'4'});
+    }
     hideLoading();
     if(r.ok){msg.textContent=`✓ Filled tab "${r.tab}" for ${r.employees} employees`;msg.style.color='#34A952';}
     else{msg.textContent='Error: '+(r.error||'Unknown');msg.style.color='#BD3531';}
@@ -2087,7 +2099,7 @@ async function previewExport(type){
     const dates=(type==='biweekly'||type==='punches')? getPeriodDates():null;
     if((type==='biweekly')&&!dates){hideLoading();return;}
     if(type==='biweekly'){rows=await buildBiWeeklyRows(dates);title='Full Bi-Weekly Timesheet';filename=`nhml-biweekly-${dates[0]}.csv`;}
-    else if(type==='punches'){rows=await buildPunchRows();title='Punch Detail Log';filename=`nhml-punchlog-${new Date().toISOString().slice(0,10)}.csv`;}
+    else if(type==='punches'){rows=await buildPunchRows(dates);title='Punch Detail Log';filename=`nhml-punchlog-${dates?dates[0]:new Date().toISOString().slice(0,10)}.csv`;}
     else if(type==='accruals'){rows=await buildAccrualRows();title='Accrual Balances';filename=`nhml-accruals-${new Date().toISOString().slice(0,10)}.csv`;}
     else if(type==='roster'){rows=await buildRosterRows();title='Employee Roster';filename=`nhml-roster-${new Date().toISOString().slice(0,10)}.csv`;}
     _previewRows=rows; _previewFilename=filename;
@@ -2156,12 +2168,15 @@ async function buildBiWeeklyRows(dates){
   });
   return rows;
 }
-async function buildPunchRows(){
+async function buildPunchRows(dates){
   const emps=await loadEmployees();
   const allPA=await api('getAllPunches',{}).then(r=>r.data||[]);
   const pu={}; allPA.forEach(p=>{if(!pu[p.empId])pu[p.empId]=[];pu[p.empId].push(p);});
+  const dateSet=dates?new Set(dates):null;
   const rows=[['Punch ID','Emp ID','Last','First','Event','Date','Time','Late','Admin Edit','Note']];
-  emps.filter(e=>e.id&&e.last).forEach(emp=>(pu[emp.id]||[]).forEach(p=>rows.push([p.punchId||'',emp.id,emp.last,emp.first,p.event,cleanDate(p.date),cleanTime(p.time),p.isLate?'YES':'',p.adminEdited?'YES':'',p.note||''])));
+  emps.filter(e=>e.id&&e.last).forEach(emp=>(pu[emp.id]||[])
+    .filter(p=>!dateSet||dateSet.has(cleanDate(p.date)))
+    .forEach(p=>rows.push([p.punchId||'',emp.id,emp.last,emp.first,p.event,cleanDate(p.date),cleanTime(p.time),p.isLate?'YES':'',p.adminEdited?'YES':'',p.note||''])));
   return rows;
 }
 async function buildAccrualRows(){
