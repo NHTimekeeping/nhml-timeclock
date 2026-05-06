@@ -2151,9 +2151,26 @@ async function diagnosePunchLog(){
     else {
       lines.push(`Tab found: "${weR.tabName}"  |  Rows: ${weR.totalRows}`);
       lines.push(`Col C values (first 10 rows): ${JSON.stringify(weR.colC)}`);
-      lines.push(`Emp IDs expected: ${(empR.data||[]).map(e=>e.id).join(', ')}`);
-      const found = weR.colC.filter(c => (empR.data||[]).some(e=>e.id===c));
+      const empIds = (empR.data||[]).map(e=>e.id||e.empId||'?');
+      lines.push(`Emp IDs expected: ${empIds.join(', ')}`);
+      const found = weR.colC.map(s=>s.split(':')[1]).filter(c => empIds.includes(c));
       lines.push(`Emp IDs found in col C: ${found.length>0 ? found.join(', ') : 'NONE — WE tab has no employee IDs in column C'}`);
+      lines.push('');
+      lines.push('── Punch Date Check ──');
+      if(punchR.ok){
+        const allPunchDates=[...new Set((punchR.parsedSample||[]).map(p=>String(p.date||'').slice(0,10)))];
+        const pd3 = fillVal ? periodDatesFromEnd(fillVal) : null;
+        if(pd3){
+          const inRange=pd3.dates.filter(d=>allPunchDates.includes(d));
+          if(inRange.length===0){
+            lines.push(`⚠ PUNCH DATES (${allPunchDates.join(', ')}) are outside the period (${pd3.start.toISOString().slice(0,10)} to ${pd3.end.toISOString().slice(0,10)})`);
+            lines.push(`  → To test: add punches dated between ${pd3.dates[0]} and ${pd3.dates[pd3.dates.length-1]}`);
+            lines.push(`  → Or use the employee portal to clock in/out on a date in that range`);
+          } else {
+            lines.push(`✓ ${inRange.length} punch date(s) found in period: ${inRange.join(', ')}`);
+          }
+        }
+      }
     }
 
     diag.textContent=lines.join('\n');
