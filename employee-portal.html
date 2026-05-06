@@ -664,11 +664,11 @@ input::placeholder { color: #c0bdd8; }
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
               <div>
                 <label style="font-size:12px;color:#888880;display:block;margin-bottom:4px;letter-spacing:0.06em;text-transform:uppercase;">Start date</label>
-                <input type="date" id="toReqStart" style="width:100%;background:#f5f3ee;border:1px solid #d0cdc6;border-radius:6px;padding:10px 13px;font-family:'Lexend',sans-serif;font-size:14px;color:#1a1a18;outline:none;">
+                <input type="date" id="toReqStart" onchange="updateAmountOptions()" style="width:100%;background:#f5f3ee;border:1px solid #d0cdc6;border-radius:6px;padding:10px 13px;font-family:'Lexend',sans-serif;font-size:14px;color:#1a1a18;outline:none;">
               </div>
               <div>
                 <label style="font-size:12px;color:#888880;display:block;margin-bottom:4px;letter-spacing:0.06em;text-transform:uppercase;">End date</label>
-                <input type="date" id="toReqEnd" style="width:100%;background:#f5f3ee;border:1px solid #d0cdc6;border-radius:6px;padding:10px 13px;font-family:'Lexend',sans-serif;font-size:14px;color:#1a1a18;outline:none;">
+                <input type="date" id="toReqEnd" onchange="updateAmountOptions()" style="width:100%;background:#f5f3ee;border:1px solid #d0cdc6;border-radius:6px;padding:10px 13px;font-family:'Lexend',sans-serif;font-size:14px;color:#1a1a18;outline:none;">
               </div>
             </div>
             <div>
