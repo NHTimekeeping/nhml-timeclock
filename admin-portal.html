@@ -619,8 +619,10 @@ textarea { resize: vertical; min-height: 70px; }
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
           <button class="btn btn-green" onclick="fillPayPeriodTab()">📝 Fill this pay period tab</button>
           <button class="btn btn-ghost" onclick="fillAllPayPeriodTabs()" style="font-size:0.85rem;">Fill all WE tabs</button>
+          <button class="btn btn-ghost" onclick="diagnosePunchLog()" style="font-size:0.85rem;color:#9896b0;">🔍 Diagnose Punch Log</button>
         </div>
         <div id="fillMsg" style="font-size:13px;margin-top:10px;display:none;"></div>
+        <pre id="diagMsg" style="font-size:11px;margin-top:10px;display:none;background:#f4f2fa;padding:10px;border-radius:6px;overflow:auto;max-height:220px;white-space:pre-wrap;"></pre>
       </div>
     </div>
 
@@ -2087,6 +2089,32 @@ async function fillAllPayPeriodTabs(){
     else{msg.textContent='Error: '+(r.error||'Unknown');msg.style.color='#BD3531';}
     msg.style.display='block'; setTimeout(()=>msg.style.display='none',6000);
   }catch(e){hideLoading();msg.textContent='Failed: '+e.message;msg.style.color='#BD3531';msg.style.display='block';}
+}
+
+async function diagnosePunchLog(){
+  const diag=document.getElementById('diagMsg');
+  const msg=document.getElementById('fillMsg');
+  diag.style.display='none'; msg.style.display='none';
+  showLoading('Reading Punch Log tab…');
+  try{
+    const r=await api('getPunchLogHeaders',{},{});
+    hideLoading();
+    if(!r.ok){diag.textContent='Error: '+r.error;diag.style.display='block';return;}
+    const lines=[
+      `Sheet: "${r.sheetName}"  |  Total rows: ${r.totalRows}  |  Header detected at row: ${r.detectedHeaderRow}`,
+      ``,
+      `Row 0 (raw): ${JSON.stringify(r.row0)}`,
+      `Row 1 (raw): ${JSON.stringify(r.row1)}`,
+      `Row 2 (raw): ${JSON.stringify(r.row2)}`,
+      ``,
+      `First data row values: ${JSON.stringify(r.firstDataRow)}`,
+      ``,
+      `Parsed sample (what the code sees):`,
+      JSON.stringify(r.parsedSample, null, 2),
+    ];
+    diag.textContent=lines.join('\n');
+    diag.style.display='block';
+  }catch(e){hideLoading();diag.textContent='Diagnostic failed: '+e.message;diag.style.display='block';}
 }
 
 // ── Preview & export ──
