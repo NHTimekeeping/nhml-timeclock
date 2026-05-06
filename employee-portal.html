@@ -1549,6 +1549,17 @@ function doPunchIn() {
   const st = gs(); const emp = ge();
   const now = new Date();
 
+  // ── Block if already clocked in ──
+  if (st.status === 'in' || st.status === 'meal-out') {
+    const el = document.getElementById('noticeEarly');
+    document.getElementById('noticeEarlyMsg').textContent =
+      st.status === 'meal-out'
+        ? 'You are currently on a meal break. Please return from your meal break first.'
+        : 'You are already clocked in. Please punch out before punching in again.';
+    el.classList.add('show');
+    return;
+  }
+
   // ── Early/late check ──
   const analysis = analyzePunchTime(now);
 
