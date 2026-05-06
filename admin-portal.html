@@ -2102,23 +2102,60 @@ async function diagnosePunchLog(){
   const diag=document.getElementById('diagMsg');
   const msg=document.getElementById('fillMsg');
   diag.style.display='none'; msg.style.display='none';
-  showLoading('Reading Punch Log tab…');
+  showLoading('Running diagnostics…');
   try{
-    const r=await api('getPunchLogHeaders',{},{});
+    // Run all diagnostics in parallel
+    const fillVal = document.getElementById('fillPeriodEnd')?.value;
+    const pd = fillVal ? periodDatesFromEnd(fillVal) : null;
+    const periodStartStr = pd ? pd.start.toISOString().slice(0,10) : '';
+    const [punchR, weR, empR] = await Promise.all([
+      api('getPunchLogHeaders',{},{}),
+      api('debugWETab',{},{periodStart:periodStartStr}),
+      api('getEmployees',{},{}),
+    ]);
     hideLoading();
-    if(!r.ok){diag.textContent='Error: '+r.error;diag.style.display='block';return;}
-    const lines=[
-      `Sheet: "${r.sheetName}"  |  Total rows: ${r.totalRows}  |  Header detected at row: ${r.detectedHeaderRow}`,
-      ``,
-      `Row 0 (raw): ${JSON.stringify(r.row0)}`,
-      `Row 1 (raw): ${JSON.stringify(r.row1)}`,
-      `Row 2 (raw): ${JSON.stringify(r.row2)}`,
-      ``,
-      `First data row values: ${JSON.stringify(r.firstDataRow)}`,
-      ``,
-      `Parsed sample (what the code sees):`,
-      JSON.stringify(r.parsedSample, null, 2),
-    ];
+
+    const lines = ['═══ DIAGNOSTIC REPORT ═══',''];
+
+    // 1. Punch Log
+    lines.push('── Punch Log ──');
+    if(!punchR.ok){ lines.push('ERROR: '+punchR.error); }
+    else {
+      lines.push(`Total rows: ${punchR.totalRows}  |  Header at row: ${punchR.detectedHeaderRow}`);
+      lines.push(`Columns: ${punchR.row1.join(' | ')}`);
+      const punches = punchR.parsedSample||[];
+      const punchDates = [...new Set(punches.map(p=>p.date||p.Date||'?'))];
+      lines.push(`Sample punch dates: ${punchDates.join(', ')}`);
+    }
+    lines.push('');
+
+    // 2. Period dates from the date picker
+    lines.push('── Selected Pay Period ──');
+    if(!fillVal){ lines.push('No date selected in Fill Pay Period box'); }
+    else {
+      const pd2 = periodDatesFromEnd(fillVal);
+      lines.push(`End date selected: ${fillVal}`);
+      lines.push(`Period runs: ${pd2.start.toISOString().slice(0,10)} → ${pd2.end.toISOString().slice(0,10)}`);
+      lines.push(`Working days: ${pd2.dates.join(', ')}`);
+      if(punchR.ok && punchR.parsedSample?.length){
+        const pDates = new Set(punchR.parsedSample.map(p=>String(p.date||'').slice(0,10)));
+        const inRange = pd2.dates.filter(d=>pDates.has(d));
+        lines.push(`Punch dates in this period: ${inRange.length>0 ? inRange.join(', ') : 'NONE — punches exist but are outside this period range'}`);
+      }
+    }
+    lines.push('');
+
+    // 3. WE tab structure
+    lines.push('── WE Tab Structure ──');
+    if(!weR.ok){ lines.push('ERROR: '+weR.error); }
+    else {
+      lines.push(`Tab found: "${weR.tabName}"  |  Rows: ${weR.totalRows}`);
+      lines.push(`Col C values (first 10 rows): ${JSON.stringify(weR.colC)}`);
+      lines.push(`Emp IDs expected: ${(empR.data||[]).map(e=>e.id).join(', ')}`);
+      const found = weR.colC.filter(c => (empR.data||[]).some(e=>e.id===c));
+      lines.push(`Emp IDs found in col C: ${found.length>0 ? found.join(', ') : 'NONE — WE tab has no employee IDs in column C'}`);
+    }
+
     diag.textContent=lines.join('\n');
     diag.style.display='block';
   }catch(e){hideLoading();diag.textContent='Diagnostic failed: '+e.message;diag.style.display='block';}
