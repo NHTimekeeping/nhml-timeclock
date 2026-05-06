@@ -922,7 +922,7 @@ async function loadAllPunches() {
 }
 async function loadAllPunchesAsMap() {
   const arr = await loadAllPunches();
-  const m = {}; arr.forEach(p=>{if(!m[p.empId])m[p.empId]=[];m[p.empId].push(p);}); return m;
+  const m = {}; arr.forEach(p=>{const _eid=p.empId||p.id; if(!m[_eid])m[_eid]=[];m[_eid].push(p);}); return m;
 }
 async function loadAccruals(empId) {
   const all = await cached('accruals', () => api('getAccruals',{}).then(r=>r.data||{}));
@@ -985,6 +985,13 @@ function minsToTenthsShift(mins) {
   if (m <= 41) return 0.6; if (m <= 47) return 0.7; if (m <= 53) return 0.8;
   if (m <= 59) return 0.9; return 1.0;
 }
+// Handles true/false values that may come back from Sheets as boolean, "true"/"false", "Yes"/"No", or 1/0
+function isTruthy(val) {
+  if (val === true || val === 1) return true;
+  const s = String(val).trim().toLowerCase();
+  return s === 'true' || s === 'yes' || s === '1';
+}
+
 function workedMinsToTenths(totalMins) {
   return parseFloat((Math.floor(totalMins/60) + minsToTenthsShift(totalMins%60)).toFixed(1));
 }
@@ -1120,7 +1127,7 @@ async function renderStats() {
   const allP  = await api('getAllPunches',{}).then(r=>r.data||[]);
   invalidateCache('punches');
   const pmap  = {};
-  allP.forEach(p=>{ if(!pmap[p.empId]) pmap[p.empId]=[]; pmap[p.empId].push(p); });
+  allP.forEach(p=>{const _k=p.empId||p.id;if(!pmap[_k])pmap[_k]=[];pmap[_k].push(p);});
   const today = new Date().toISOString().slice(0,10);
   let clockedIn=0, lateToday=0, punchCountToday=0;
   emps.forEach(e => {
@@ -1129,7 +1136,7 @@ async function renderStats() {
     const lastIn  = ep.filter(p=>p.event==='Punch In').pop();
     const lastOut = ep.filter(p=>p.event==='Punch Out').pop();
     if (lastIn && !lastOut) clockedIn++;
-    if (ep.some(p=>p.event==='Punch In'&&String(p.isLate)==='true')) lateToday++;
+    if (ep.some(p=>p.event==='Punch In'&&isTruthy(p.isLate))) lateToday++;
   });
   document.getElementById('statsRow').innerHTML = `
     <div class="stat-card"><div class="stat-lbl">Active employees</div><div class="stat-val">${emps.filter(e=>String(e.status).toLowerCase()==='active').length}</div></div>
@@ -1148,7 +1155,7 @@ async function renderEmpTable() {
   const freshPunches = await api('getAllPunches',{}).then(r=>r.data||[]);
   invalidateCache('punches'); // keep cache in sync
   const punchMap = {};
-  freshPunches.forEach(p=>{ if(!punchMap[p.empId]) punchMap[p.empId]=[]; punchMap[p.empId].push(p); });
+  freshPunches.forEach(p=>{const _k=p.empId||p.id;if(!punchMap[_k])punchMap[_k]=[];punchMap[_k].push(p);});
   document.getElementById('empTbody').innerHTML = emps.length ? emps.map(e => {
     const ep = (punchMap[e.id]||[]).filter(p=>cleanDate(p.date)===today);
     const lastIn  = ep.filter(p=>p.event==='Punch In').pop();
@@ -1156,7 +1163,7 @@ async function renderEmpTable() {
     const onMeal  = ep.filter(p=>p.event==='Meal Break Out').pop() && !ep.filter(p=>p.event==='Meal Break In').pop();
     const sPill = onMeal ? `<span class="pill pill-meal">Meal</span>` :
       lastIn&&!lastOut ? `<span class="pill pill-in">In</span>` : `<span class="pill pill-out">Out</span>`;
-    const lFlag = ep.some(p=>p.event==='Punch In'&&String(p.isLate)==='true') ? `<span class="pill pill-late">LATE</span>` : '';
+    const lFlag = ep.some(p=>p.event==='Punch In'&&isTruthy(p.isLate)) ? `<span class="pill pill-late">LATE</span>` : '';
     const tPill = String(e.empType||'').toLowerCase()==='full-time'
       ? `<span class="pill" style="background:#e8eef5;color:#1e3a5f;">FT</span>`
       : `<span class="pill" style="background:#f0eeea;color:#888880;">PT</span>`;
@@ -1294,7 +1301,7 @@ async function openTodayPunches(empId) {
   const punches = await api('getAllPunches',{}).then(r=>r.data||[]);
   invalidateCache('punches');
   const today   = new Date().toISOString().slice(0,10);
-  const ep      = punches.filter(p => p.empId===empId && cleanDate(p.date)===today)
+  const ep      = punches.filter(p => (p.empId||p.id)===empId && cleanDate(p.date)===today)
     .sort((a,b) => (a.time||'').localeCompare(b.time||''));
 
   document.getElementById('todayPunchesTitle').textContent =
@@ -1306,12 +1313,12 @@ async function openTodayPunches(empId) {
         <thead><tr><th>Event</th><th>Time</th><th>Late?</th><th>Note</th><th></th></tr></thead>
         <tbody>` +
         ep.map(p => {
-          const adminBadge = p.adminEdited === 'true' || p.adminEdited === true
+          const adminBadge = isTruthy(p.adminEdited)
             ? `<span style="font-size:10px;background:#f2e8f5;color:#5a2d6b;border-radius:4px;padding:1px 5px;margin-left:4px;">admin</span>` : '';
           return `<tr>
             <td style="color:${evtColor[p.event]||'#444'};font-weight:500;">${p.event}${adminBadge}</td>
             <td>${cleanTime(p.time)}</td>
-            <td>${String(p.isLate)==='true'?'<span class="pill pill-late">LATE</span>':'—'}</td>
+            <td>${isTruthy(p.isLate)?'<span class="pill pill-late">LATE</span>':'—'}</td>
             <td style="font-size:12px;color:var(--ink3);max-width:140px;overflow:hidden;text-overflow:ellipsis;">${p.note||'—'}</td>
             <td><button class="btn btn-ghost btn-sm" onclick="openPunchEditFromToday('${empId}','${p.punchId||''}')">Edit</button></td>
           </tr>`;
@@ -1391,13 +1398,13 @@ async function renderPunchLog() {
   rows.sort((a,b)=>(cleanDate(b.p.date)+cleanTime(b.p.time)).localeCompare(cleanDate(a.p.date)+cleanTime(a.p.time)));
   const evtColor={'Punch In':'#2d7a4d','Punch Out':'#444440','Meal Break Out':'#28749A','Meal Break In':'#28749A'};
   document.getElementById('punchTbody').innerHTML = rows.length ? rows.map(({emp,p,i})=>{
-    const isAdminEdit = p.adminEdited === 'true' || p.adminEdited === true;
+    const isAdminEdit = isTruthy(p.adminEdited);
     const adminBadge  = isAdminEdit
       ? `<span style="font-size:10px;background:#f2e8f5;color:#5a2d6b;border-radius:4px;padding:1px 5px;margin-left:6px;font-weight:600;">✎ admin</span>`
       : '';
     return `<tr style="${isAdminEdit?'background:#fdf8ff;':''}">
       <td>${emp.last}, ${emp.first[0]}.</td>
-      <td style="color:${evtColor[p.event]||'#444'};font-weight:500;">${p.event}${String(p.isLate)==='true'?'<span class="pill pill-late" style="margin-left:6px;">LATE</span>':''}${adminBadge}</td>
+      <td style="color:${evtColor[p.event]||'#444'};font-weight:500;">${p.event}${isTruthy(p.isLate)?'<span class="pill pill-late" style="margin-left:6px;">LATE</span>':''}${adminBadge}</td>
       <td>${cleanTime(p.time)}</td>
       <td style="color:var(--ink3);">${cleanDate(p.date)}</td>
       <td style="font-size:12px;color:var(--ink3);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${p.note||''}">${p.note||''}</td>
@@ -1417,7 +1424,7 @@ async function openPunchEdit(empId, punchId) {
   document.getElementById('punchEditEvent').value = p.event;
   document.getElementById('punchEditDate').value  = p.date||'';
   document.getElementById('punchEditTime').value  = p.time||'';
-  document.getElementById('punchEditLate').value  = String(p.isLate)==='true'?'true':'false';
+  document.getElementById('punchEditLate').value  = isTruthy(p.isLate)?'true':'false';
   document.getElementById('punchEditNote').value  = p.note||'';
   openModal('modalPunch');
 }
@@ -2154,7 +2161,7 @@ function downloadPreview(){
 async function buildBiWeeklyRows(dates){
   const emps=(await loadEmployees()).filter(e=>String(e.status).toLowerCase()==='active'&&e.id&&e.last);
   const allPA=await api('getAllPunches',{}).then(r=>r.data||[]);
-  const pu={}; allPA.forEach(p=>{if(!pu[p.empId])pu[p.empId]=[];pu[p.empId].push(p);});
+  const pu={}; allPA.forEach(p=>{const _k=p.empId||p.id;if(!pu[_k])pu[_k]=[];pu[_k].push(p);});
   const rows=[['Emp ID','Last','First','Dept','Type','Date','Day','In','Out','Meal Out','Meal In','Reg Hrs','OT','Holiday','Closure','Late?','Note']];
   const week1Dates=dates.slice(0,6), week2Dates=dates.slice(6);
   const OT_THRESHOLD=35, OT_MIN_EXCESS=1.0;
@@ -2180,17 +2187,17 @@ async function buildBiWeeklyRows(dates){
         const dp=ep.filter(p=>cleanDate(p.date)===date);
         const pI=dp.find(p=>p.event==='Punch In'),pO=dp.find(p=>p.event==='Punch Out');
         const mO=dp.find(p=>p.event==='Meal Break Out'),mI=dp.find(p=>p.event==='Meal Break In');
-        const adjs=dp.filter(p=>p.isAdjustment);
+        const adjs=dp.filter(p=>isTruthy(p.isAdjustment));
         if(!pI&&!pO&&!adjs.length)return;
         const day=new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'short'});
-        const note=dp.filter(p=>p.adminEdited).map(p=>p.note).filter(Boolean).join('; ');
+        const note=dp.filter(p=>isTruthy(p.adminEdited)).map(p=>p.note).filter(Boolean).join('; ');
         rows.push([emp.id,emp.last,emp.first,emp.dept,emp.empType||'',date,day,
           pI?cleanTime(pI.time):'',pO?cleanTime(pO.time):'',
           mO?cleanTime(mO.time):'',mI?cleanTime(mI.time):'',
           dailyTenths[date]||'',date===lastDate&&weekOT>0?weekOT:'',
           adjs.find(p=>p.event==='Holiday Pay')?.hours||'',
           adjs.find(p=>p.event==='Library Closure')?.hours||'',
-          pI&&String(pI.isLate)==='true'?'YES':'',note]);
+          pI&&isTruthy(pI.isLate)?'YES':'',note]);
       });
     });
   });
@@ -2199,12 +2206,12 @@ async function buildBiWeeklyRows(dates){
 async function buildPunchRows(dates){
   const emps=await loadEmployees();
   const allPA=await api('getAllPunches',{}).then(r=>r.data||[]);
-  const pu={}; allPA.forEach(p=>{if(!pu[p.empId])pu[p.empId]=[];pu[p.empId].push(p);});
+  const pu={}; allPA.forEach(p=>{const _k=p.empId||p.id;if(!pu[_k])pu[_k]=[];pu[_k].push(p);});
   const dateSet=dates?new Set(dates):null;
   const rows=[['Punch ID','Emp ID','Last','First','Event','Date','Time','Late','Admin Edit','Note']];
   emps.filter(e=>e.id&&e.last).forEach(emp=>(pu[emp.id]||[])
     .filter(p=>!dateSet||dateSet.has(cleanDate(p.date)))
-    .forEach(p=>rows.push([p.punchId||'',emp.id,emp.last,emp.first,p.event,cleanDate(p.date),cleanTime(p.time),p.isLate?'YES':'',p.adminEdited?'YES':'',p.note||''])));
+    .forEach(p=>rows.push([p.punchId||'',emp.id,emp.last,emp.first,p.event,cleanDate(p.date),cleanTime(p.time),isTruthy(p.isLate)?'YES':'',isTruthy(p.adminEdited)?'YES':'',p.note||''])));
   return rows;
 }
 async function buildAccrualRows(){
