@@ -889,6 +889,12 @@ async function loadTodayPunches(empId) {
   const r = await api('getPunches', {empId, date: today});
   return r.data || [];
 }
+function fmtDateShort(s) {
+  if (!s) return '—';
+  const d = new Date(s + 'T12:00:00');
+  return d.toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
+}
+
 let _accrualsCache = null;
 async function loadAccruals(empId) {
   if (_accrualsCache && empId && _accrualsCache._empId === empId) return _accrualsCache._data;
@@ -1199,7 +1205,7 @@ async function renderTimeOffRequests() {
   if (!el) return;
   if (!requests.length) { el.innerHTML = '<div class="empty-state">No requests yet.</div>'; return; }
   const statusStyle = {
-    pending:  'background:#FEF0B8;color:#5a3a00;',
+    pending:  'background:#FEF0B8;color:#b84000;font-size:12px;font-weight:800;',
     approved: 'background:#eaf2ec;color:#2d5a3d;',
     denied:   'background:#fef2f2;color:#BD3531;',
     used:     'background:#e8eef5;color:#1e3a5f;',
@@ -1217,15 +1223,16 @@ async function renderTimeOffRequests() {
       const status = (r.status||'pending').toLowerCase();
       const rid    = r.requestId||r.requestid||'';
       const note   = r.note||'';
+      const isPending = status === 'pending';
       const denialReason = status==='denied' && note.includes('Denied:') ? note.split('Denied:').pop().trim() : '';
-      // Can cancel if pending, or if approved and start date is in future
       const canCancel = (status==='pending') || (status==='approved' && start > today);
-      return `<tr>
-        <td style="font-weight:500;">${type}</td>
-        <td style="font-size:12px;">${start}${end&&end!==start?' – '+end:''}</td>
-        <td>${amt}</td>
+      const rowStyle = isPending ? 'font-weight:700;background:#fffbf0;' : '';
+      return `<tr style="${rowStyle}">
+        <td style="font-weight:${isPending?'800':'500'};font-size:${isPending?'13px':'inherit'};">${type}${isPending?' ⏳':''}</td>
+        <td style="font-size:12px;font-weight:${isPending?'700':'400'};">${start}${end&&end!==start?' – '+end:''}</td>
+        <td style="font-weight:${isPending?'700':'400'};">${amt}</td>
         <td>
-          <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:99px;${statusStyle[status]||''}">${status.charAt(0).toUpperCase()+status.slice(1)}</span>
+          <span style="padding:2px 8px;border-radius:99px;${statusStyle[status]||''}">${status.charAt(0).toUpperCase()+status.slice(1)}</span>
           ${denialReason?`<div style="font-size:11px;color:#b91c1c;margin-top:3px;">Reason: ${denialReason}</div>`:''}
         </td>
         <td>${canCancel?`<button style="background:none;border:1.5px solid #e0ddd6;border-radius:6px;padding:2px 10px;font-size:11px;cursor:pointer;color:#888880;font-family:Lexend,sans-serif;" onclick="cancelTimeOff('${rid}','${type}','${start}')">Cancel</button>`:'—'}</td>
@@ -1359,37 +1366,93 @@ function switchTab(name) {
   if (name === 'timeoff') { renderTimeOffRequests(); renderPaidNonWorked(); updateAmountOptions(); }
 }
 
+function countWeekdays(startStr, endStr) {
+  if (!startStr || !endStr) return 0;
+  const start = new Date(startStr + 'T12:00:00');
+  const end   = new Date(endStr   + 'T12:00:00');
+  if (end < start) return 0;
+  let count = 0;
+  const cur = new Date(start);
+  while (cur <= end) {
+    const d = cur.getDay();
+    if (d !== 0 && d !== 6) count++;
+    cur.setDate(cur.getDate() + 1);
+  }
+  return count;
+}
+
 function updateAmountOptions() {
-  const type = document.getElementById('toReqType').value;
-  const sel  = document.getElementById('toReqAmount');
-  const note = document.getElementById('toReqAmountNote');
+  const type  = document.getElementById('toReqType').value;
+  const sel   = document.getElementById('toReqAmount');
+  const note  = document.getElementById('toReqAmountNote');
+  const start = document.getElementById('toReqStart').value;
+  const end   = document.getElementById('toReqEnd').value || start;
   if (!sel) return;
   let opts = [], noteText = '';
+
   if (type === 'Sick time') {
     opts = [
-      {v:'1 hour (0.14)',    l:'1 hour'},
-      {v:'2 hours (0.29)',   l:'2 hours'},
-      {v:'3 hours (0.43)',   l:'3 hours'},
-      {v:'Half day (0.50)',  l:'Half day'},
-      {v:'4 hours (0.57)',   l:'4 hours'},
-      {v:'5 hours (0.71)',   l:'5 hours'},
-      {v:'6 hours (0.86)',   l:'6 hours'},
-      {v:'Full day (1.00)',  l:'Full day'},
+      {v:'1',   l:'1 hour'},
+      {v:'2',   l:'2 hours'},
+      {v:'3',   l:'3 hours'},
+      {v:'3.5', l:'3.5 hours (half day)'},
+      {v:'4',   l:'4 hours'},
+      {v:'5',   l:'5 hours'},
+      {v:'6',   l:'6 hours'},
+      {v:'7',   l:'7 hours (full day)'},
     ];
     noteText = 'Sick time is taken in hourly increments.';
+
   } else if (type === 'Leave without pay') {
-    opts = [0.5,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8].map(v=>({v:v+' hours',l:v+' hours'}));
-    noteText = 'Leave without pay can be taken in any hourly increment.';
+    opts = [0.5,1,1.5,2,2.5,3,3.5,4,4.5,5,5.5,6,6.5,7,7.5,8]
+      .map(v => ({v: String(v), l: v + ' hours'}));
+    noteText = 'Leave without pay is taken in hourly increments.';
+
   } else {
-    opts = [
-      {v:'0.25 day', l:'0.25 day'},
-      {v:'0.50 day (half day)', l:'0.50 day — half day'},
-      {v:'0.75 day', l:'0.75 day'},
-      {v:'1.00 day (full day)', l:'1.00 day — full day'},
-    ];
-    noteText = 'Vacation, personal, and floating holiday taken in .25-day increments.';
+    // Vacation, Personal, Floating holiday — count Mon–Fri weekdays
+    const days = (start && end) ? countWeekdays(start, end) : 0;
+
+    if (!start) {
+      opts = [
+        {v:'0.25', l:'0.25 day — quarter day'},
+        {v:'0.5',  l:'0.50 day — half day'},
+        {v:'0.75', l:'0.75 day'},
+        {v:'1',    l:'1 day — full day'},
+      ];
+      noteText = 'Select dates above to auto-calculate weekdays.';
+
+    } else if (days === 0) {
+      opts = [{v:'0', l:'No weekdays in selected range'}];
+      noteText = '⚠️ Selected range has no Mon–Fri weekdays.';
+
+    } else if (days === 1) {
+      opts = [
+        {v:'0.25', l:'0.25 day — quarter day'},
+        {v:'0.5',  l:'0.50 day — half day'},
+        {v:'0.75', l:'0.75 day'},
+        {v:'1',    l:'1 day — full day', selected: true},
+      ];
+      noteText = '1 weekday in selected range.';
+
+    } else {
+      // Pre-select the full weekday count
+      opts = [{v: String(days), l: days + ' days — full range (' + days + ' weekdays)', selected: true}];
+      for (let d = days - 1; d >= 1; d--) {
+        opts.push({v: String(d), l: d + ' day' + (d !== 1 ? 's' : '')});
+      }
+      // Quarter-day partials for the last day
+      if (days > 1) {
+        opts.push({v: String(days - 0.25), l: (days - 0.25).toFixed(2) + ' days (last day ¾)'});
+        opts.push({v: String(days - 0.5),  l: (days - 0.5).toFixed(2)  + ' days (last day ½)'});
+        opts.push({v: String(days - 0.75), l: (days - 0.75).toFixed(2) + ' days (last day ¼)'});
+      }
+      noteText = days + ' Mon–Fri weekdays in selected range.';
+    }
   }
-  sel.innerHTML = opts.map(o=>`<option value="${o.v}">${o.l}</option>`).join('');
+
+  sel.innerHTML = opts.map(o =>
+    `<option value="${o.v}"${o.selected ? ' selected' : ''}>${o.l}</option>`
+  ).join('');
   if (note) note.textContent = noteText;
 }
 
@@ -1930,32 +1993,63 @@ async function renderAccruals() {
   document.getElementById('accrualGrid').innerHTML = types.map(t => {
     const a = acc[t.key] || {bal:0,used:0};
     const isSick = t.key==='sick', isLwop = t.key==='lwop';
-    const balDisplay = isSick ? sickToDays(a.bal) : isLwop ? '—' : `${a.bal}`;
     const p = pending[t.key]||0;
     const s = scheduled[t.key]||0;
-    // Available = balance minus pending minus scheduled
     const avail = isLwop ? null : Math.max(0, parseFloat(((a.bal||0) - p - s).toFixed(2)));
-    const availDisplay = isSick ? sickToDays(avail||0) : `${avail}`;
+    const usedDisplay  = isSick ? `${a.used||0}h` : isLwop ? `${a.used||0}h` : `${a.used||0} days`;
+    const availDisplay = isSick ? `${avail||0}h`  : `${avail} days`;
+
+    // Date history from time-off requests
+    const typeKeyForRequests = {
+      vacation:'vacation', sick:'sick time', personal:'personal time',
+      floatHoliday:'floating holiday', lwop:'leave without pay',
+    };
+    const histEntries = requests.filter(r => {
+      const rt = (r.type||'').toLowerCase();
+      return rt === typeKeyForRequests[t.key] || rt === t.key;
+    }).sort((a,b) => (a.startDate||'') < (b.startDate||'') ? 1 : -1);
+
+    let histHtml = '';
+    if (histEntries.length) {
+      histHtml = `<div style="margin-top:6px;width:100%;">` +
+        histEntries.map(r => {
+          const start = String(r.startDate||r.startdate||'').slice(0,10);
+          const end   = String(r.endDate||r.enddate||start).slice(0,10);
+          const dateStr = start === end || !end ? fmtDateShort(start) : fmtDateShort(start) + ' – ' + fmtDateShort(end);
+          const amt   = parseFloat(String(r.amount||'0').replace(/[^0-9.]/g,''))||0;
+          const amtStr = isSick ? `${amt}h` : `${amt} day${amt !== 1 ? 's' : ''}`;
+          const st    = (r.status||'').toLowerCase();
+          const isPending   = st === 'pending';
+          const isScheduled = st === 'approved' && start > today;
+          const rowColor = isPending ? '#b84000' : isScheduled ? '#28749A' : '#444440';
+          const rowWeight = isPending ? '700' : '400';
+          const label = isPending ? ' ⏳ pending' : isScheduled ? ' 📅 scheduled' : ' ✓';
+          return `<div style="font-size:11px;color:${rowColor};font-weight:${rowWeight};padding:1px 0 1px 4px;border-left:2px solid ${rowColor}20;margin-bottom:2px;">
+            ${dateStr} · ${amtStr}${label}
+          </div>`;
+        }).join('') +
+      `</div>`;
+    }
 
     let subLines = '';
     if (!isLwop) {
-      subLines += `<div style="margin-top:4px;font-size:12px;color:#34A952;font-weight:600;">Available: ${availDisplay} ${t.unit}</div>`;
-      if (p > 0) subLines += `<div style="font-size:11px;color:#c8980a;margin-top:1px;">⏳ ${p} ${t.unit} pending approval</div>`;
-      if (s > 0) subLines += `<div style="font-size:11px;color:#28749A;margin-top:1px;">📅 ${s} ${t.unit} scheduled (approved, upcoming)</div>`;
+      if (p > 0) subLines += `<div style="font-size:12px;color:#b84000;font-weight:700;margin-top:3px;">⏳ ${p} ${t.unit} pending approval</div>`;
+      if (s > 0) subLines += `<div style="font-size:12px;color:#28749A;font-weight:700;margin-top:2px;">📅 ${s} ${t.unit} scheduled</div>`;
     } else {
       subLines += `<div style="margin-top:4px;font-size:12px;color:#888880;">${a.used||0}h used this year</div>`;
     }
 
-    return `<div class="accrual-row">
-      <div class="accrual-icon" style="background:${t.bg};color:${t.color};">${t.icon}</div>
-      <div class="accrual-info">
+    return `<div class="accrual-row" style="flex-wrap:wrap;align-items:flex-start;">
+      <div class="accrual-icon" style="background:${t.bg};color:${t.color};margin-top:2px;">${t.icon}</div>
+      <div class="accrual-info" style="flex:1;">
         <div class="accrual-name">${t.label}</div>
         <div style="font-size:11px;color:#888880;margin-top:2px;">${t.note}</div>
         ${subLines}
+        ${histHtml}
       </div>
-      <div class="accrual-nums">
-        <strong style="color:#34A952;">${balDisplay}</strong>
-        ${!isLwop ? t.unit+' balance' : ''}
+      <div class="accrual-nums" style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:90px;">
+        <div><strong style="font-size:1.05rem;color:#b84000;">${usedDisplay}</strong><span style="font-size:0.75rem;color:#888880;"> used</span></div>
+        ${!isLwop ? `<div><strong style="font-size:1.05rem;color:#34A952;">${availDisplay}</strong><span style="font-size:0.75rem;color:#888880;"> left</span></div>` : ''}
       </div>
     </div>`;
   }).join('') +
