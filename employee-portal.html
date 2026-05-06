@@ -1016,14 +1016,44 @@ function cleanDate(val) {
   return s;
 }
 // Returns HH:MM for use in new Date(date+'T'+time) constructions
+// Returns HH:MM (24-hour) for use in new Date(date+'T'+time) constructions.
+// Handles all formats Google Sheets may return: HH:MM, HH:MM:SS, h:mm AM/PM,
+// ISO datetime strings, and Sheets serial time fractions (0.38541… = 09:15).
 function cleanTimeRaw(val) {
   if (!val||val==='') return '00:00';
-  const s = String(val);
+  const s = String(val).trim();
+
+  // Google Sheets serial time fraction (0.0–0.99999 represents 00:00–23:59:59)
+  const num = parseFloat(s);
+  if (!isNaN(num) && num >= 0 && num < 1 && s.match(/^0?\.\d+$/)) {
+    const totalMins = Math.round(num * 24 * 60);
+    const hh = Math.floor(totalMins / 60);
+    const mm = totalMins % 60;
+    return String(hh).padStart(2,'0') + ':' + String(mm).padStart(2,'0');
+  }
+
+  // ISO datetime — extract HH:MM from time part
   if (s.includes('T')) {
     const t = s.split('T')[1]||'';
-    return t.replace('Z','').slice(0,5) || '00:00';
+    const mISO = t.replace('Z','').match(/^(\d{1,2}):(\d{2})/);
+    if (mISO) return String(parseInt(mISO[1])).padStart(2,'0') + ':' + mISO[2];
   }
-  if (s.match(/^\d{1,2}:\d{2}/)) return s.slice(0,5).padStart(5,'0');
+
+  // 12-hour format — check BEFORE plain HH:MM so "2:30 PM" → 14:30 not 02:30
+  const m12 = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)/i);
+  if (m12) {
+    let hh = parseInt(m12[1]);
+    const mm = m12[2];
+    const ampm = m12[3].toUpperCase();
+    if (ampm === 'PM' && hh !== 12) hh += 12;
+    if (ampm === 'AM' && hh === 12) hh = 0;
+    return String(hh).padStart(2,'0') + ':' + mm;
+  }
+
+  // Plain 24-hour HH:MM or HH:MM:SS
+  const m24 = s.match(/^(\d{1,2}):(\d{2})/);
+  if (m24) return String(parseInt(m24[1])).padStart(2,'0') + ':' + m24[2];
+
   return '00:00';
 }
 
