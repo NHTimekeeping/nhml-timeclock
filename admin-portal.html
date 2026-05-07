@@ -913,7 +913,7 @@ async function preloadAllData() {
   Object.keys(_cache).forEach(k => _cacheTime[k] = Date.now());
   console.log(`Cache loaded: ${emps.length} emps, ${punches.length} punches, ${timeoff.length} timeoff, ${adjs.length} adjs`);
   // Confirm GAS version
-  api('ping').then(r => console.log('[GAS version]', r.version || 'unknown (pre-v17)', '| ts:', r.ts)).catch(()=>{});
+  api('ping').then(r => console.log('[GAS]', 'version:', r.version||'pre-v17', '| scriptTz:', r.tz, '| sheetTz:', r.ssTz, '| ts:', r.ts)).catch(()=>{});
 }
 
 async function loadEmployees() {
