@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -318,14 +319,21 @@ textarea { resize: vertical; min-height: 70px; }
       </div>
       <div class="card-body">
         <div class="fgrp">
-          <label class="field-lbl">Admin password</label>
+          <label class="field-lbl">Role</label>
+          <select id="adminRole" style="width:100%;">
+            <option value="director2024">Director</option>
+            <option value="secretary2024">Secretary</option>
+            <option value="assistant2024">Assistant Director</option>
+          </select>
+        </div>
+        <div class="fgrp">
+          <label class="field-lbl">Password</label>
           <input type="password" id="adminPw" placeholder="Enter password" onkeydown="if(event.key==='Enter')adminLogin()">
         </div>
         <button class="btn btn-primary" style="width:100%;padding:1rem;font-size:1rem;" onclick="adminLogin()">Login</button>
-        <div class="err" id="loginErr">Incorrect password.</div>
+        <div class="err" id="loginErr">Incorrect password. <span style="font-weight:400;">Forgot it? Contact <a href="mailto:${RECOVERY_EMAIL}" style="color:#bd3531;" id="recoveryLink"></a></span></div>
       </div>
     </div>
-    <p style="text-align:center;font-size:0.78rem;color:rgba(255,255,255,0.4);margin-top:1rem;">Default password: <strong style="color:rgba(255,255,255,0.65);">admin2024</strong></p>
   </div>
 </div>
 
@@ -337,7 +345,7 @@ textarea { resize: vertical; min-height: 70px; }
       <div class="sub">Staff Time Tracking Portal</div>
     </div>
     <div style="display:flex;align-items:center;gap:10px;">
-      <span class="admin-badge">Admin</span>
+      <span class="admin-badge" id="roleBadge">Admin</span>
       <button class="btn btn-ghost btn-sm" onclick="adminLogout()">Sign out</button>
     </div>
   </div>
@@ -473,6 +481,7 @@ textarea { resize: vertical; min-height: 70px; }
     <div class="section-card" style="margin-bottom:1.2rem;">
       <div class="sc-hdr">
         <h3>Time Off Requests</h3>
+        <div id="timeoffLockMsg" style="display:none;background:#FEF0B8;border:1.5px solid #c8980a;border-radius:8px;padding:0.7rem 1rem;margin-bottom:1rem;font-size:13px;color:#5a3a00;">🔒 Approving and denying time off requests requires Director access.</div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <span id="lastChecked" style="font-size:11px;color:var(--ink3);"></span>
           <button class="btn btn-ghost btn-sm" onclick="renderTimeOffAdmin()" title="Check for new requests">↻ Refresh</button>
@@ -619,7 +628,6 @@ textarea { resize: vertical; min-height: 70px; }
         <div style="display:flex;gap:10px;flex-wrap:wrap;">
           <button class="btn btn-green" onclick="fillPayPeriodTab()">📝 Fill this pay period tab</button>
           <button class="btn btn-ghost" onclick="fillAllPayPeriodTabs()" style="font-size:0.85rem;">Fill all WE tabs</button>
-          <button class="btn btn-ghost" onclick="diagnosePunchLog()" style="font-size:0.85rem;color:#9896b0;">🔍 Diagnose Punch Log</button>
         </div>
         <div id="fillMsg" style="font-size:13px;margin-top:10px;display:none;"></div>
         <pre id="diagMsg" style="font-size:11px;margin-top:10px;display:none;background:#f4f2fa;padding:10px;border-radius:6px;overflow:auto;max-height:220px;white-space:pre-wrap;"></pre>
@@ -836,7 +844,14 @@ textarea { resize: vertical; min-height: 70px; }
 //  GOOGLE SHEETS API LAYER
 // ════════════════════════════════════════
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxwOb02YpZ_I4H6AQavAZ7Y1fN1KaPVVVkJ829BFVcnF-ZYvhrUWCxzd3_wsgtcjlFzqg/exec';
-const ADMIN_PW   = 'admin2024';
+const ADMIN_ROLES = {
+  '5574':   { role: 'Director',           canApproveTimeOff: true  },
+  '1166':  { role: 'Secretary',           canApproveTimeOff: false },
+  '0620':  { role: 'Assistant Director',  canApproveTimeOff: false },
+};
+const RECOVERY_EMAIL = 'sgriffiths@northhavenlibrary.net';
+let _currentRole = null;
+let _currentRoleName = '';
 
 async function api(action, params={}, body=null) {
   const url = SCRIPT_URL + '?action=' + encodeURIComponent(action);
@@ -1052,27 +1067,55 @@ function cleanDate(val) {
 // ════════════════════════════════════════
 function adminLogin() {
   const pw = document.getElementById('adminPw').value;
-  if (pw !== ADMIN_PW) { document.getElementById('loginErr').classList.add('show'); return; }
+  const roleKey = document.getElementById('adminRole').value;
+  const match = ADMIN_ROLES[roleKey];
+  // Set recovery link email
+  const rl = document.getElementById('recoveryLink');
+  if (rl) { rl.textContent = RECOVERY_EMAIL; rl.href = 'mailto:' + RECOVERY_EMAIL; }
+  if (!match || pw !== roleKey) {
+    document.getElementById('loginErr').classList.add('show');
+    return;
+  }
   document.getElementById('adminPw').value = '';
   document.getElementById('loginErr').classList.remove('show');
-  sessionStorage.setItem('nhml_admin_auth', '1');
+  _currentRole = match;
+  _currentRoleName = match.role;
+  sessionStorage.setItem('nhml_admin_auth', roleKey);
   showAdminScreen();
 }
 function adminLogout() {
   sessionStorage.removeItem('nhml_admin_auth');
+  _currentRole = null; _currentRoleName = '';
   document.getElementById('screen-admin').style.display = 'none';
   document.getElementById('screen-login').style.display = 'flex';
-  // Clear polling
   if (window._pollTimer) { clearInterval(window._pollTimer); window._pollTimer = null; }
 }
 function showAdminScreen() {
   document.getElementById('screen-login').style.display = 'none';
   document.getElementById('screen-admin').style.display = 'block';
+  // Update role badge
+  const badge = document.getElementById('roleBadge');
+  if (badge) badge.textContent = _currentRoleName || 'Admin';
+  // Hide/show time off approve/deny buttons based on role
+  applyRolePermissions();
   initAdmin();
+}
+function applyRolePermissions() {
+  const canApprove = _currentRole && _currentRole.canApproveTimeOff;
+  // Toggle visibility of approve/deny controls — they use class 'timeoff-approve-ctrl'
+  document.querySelectorAll('.timeoff-approve-ctrl').forEach(el => {
+    el.style.display = canApprove ? '' : 'none';
+  });
+  // Show lock message for non-directors
+  const lockMsg = document.getElementById('timeoffLockMsg');
+  if (lockMsg) lockMsg.style.display = canApprove ? 'none' : 'block';
 }
 // Auto-resume session on page load
 document.addEventListener('DOMContentLoaded', () => {
-  if (sessionStorage.getItem('nhml_admin_auth') === '1') {
+  const savedKey = sessionStorage.getItem('nhml_admin_auth');
+  if (savedKey && ADMIN_ROLES[savedKey]) {
+    _currentRole = ADMIN_ROLES[savedKey];
+    _currentRoleName = _currentRole.role;
     showAdminScreen();
   }
 });
@@ -1373,7 +1416,7 @@ async function saveAddPunch() {
     isLate:      document.getElementById('addPunchLate').value === 'true' ? 'Yes' : 'No',
     minsLate:    0,
     adminEdited: 'Yes',
-    note:        `[Admin added ${new Date().toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}] ${note}`,
+    note:        `[${_currentRoleName||'Admin'} added ${new Date().toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}] ${note}`,
   };
   showLoading('Adding punch…');
   await api('addPunch',{},{punch});
@@ -1436,7 +1479,7 @@ async function openPunchEdit(empId, punchId) {
 async function savePunchEdit() {
   if (!_editingPunch) return;
   const rawNote = document.getElementById('punchEditNote').value.trim();
-  const stamp   = `[Admin edited ${new Date().toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}]`;
+  const stamp   = `[${_currentRoleName||'Admin'} edited ${new Date().toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}]`;
   const punch = {
     punchId:     _editingPunch.punchId,
     empId:       _editingPunch.empId,
@@ -1808,8 +1851,8 @@ async function renderTimeOffAdmin() {
       <td style="font-size:11px;color:var(--ink3);">${sub?new Date(sub).toLocaleDateString('en-US',{month:'short',day:'numeric'}):''}</td>
       <td><span class="pill" style="${ss[status]||''};font-size:11px;">${status.charAt(0).toUpperCase()+status.slice(1)}</span></td>
       <td>${isPending?`<div style="display:flex;gap:5px;">
-        <button class="btn btn-green btn-sm" onclick="decideTimeOff('${rid}','approved')">✓ Approve</button>
-        <button class="btn btn-red btn-sm" onclick="openDenyModal('${rid}','${name} · ${type} · ${start}${end&&end!==start?' – '+end:''}')">✕ Deny</button>
+        <span class="timeoff-approve-ctrl"><button class="btn btn-green btn-sm" onclick="decideTimeOff('${rid}','approved')">✓ Approve</button>
+        <button class="btn btn-red btn-sm" onclick="openDenyModal('${rid}','${name} · ${type} · ${start}${end&&end!==start?' – '+end:''}')">✕ Deny</button></span>
       </div>`:status==='approved'&&start>new Date().toISOString().slice(0,10)?`<button class="btn btn-ghost btn-sm" onclick="cancelTimeOffAdmin('${rid}')">Cancel</button>`:`<span style="font-size:12px;color:var(--ink3);">${decided?new Date(decided).toLocaleDateString('en-US',{month:'short',day:'numeric'}):''}</span>`}</td>
     </tr>`;
   }).join('') : `<tr><td colspan="8"><div class="empty">No time off requests.</div></td></tr>`;
@@ -1976,7 +2019,7 @@ async function postAdjustment() {
   const isFT=(emp.empType||'part-time')==='full-time';
   if((type==='Bereavement (FT only)'||type==='Jury duty (FT only)')&&!isFT){showAdjMsg(`${type.replace(' (FT only)','')} is FT only.`,false);return;}
   showLoading('Posting adjustment…');
-  await postAdjustmentAPI({adjId:'ADJ-'+Date.now(),empId,empName:emp.last+', '+emp.first,type:type.replace(' (FT only)',''),date,hours:String(hours),period:period||'',note,postedAt:new Date().toISOString()});
+  await postAdjustmentAPI({adjId:'ADJ-'+Date.now(),empId,empName:emp.last+', '+emp.first,type:type.replace(' (FT only)',''),date,hours:String(hours),period:period||'',note,postedAt:new Date().toISOString(),postedBy:_currentRoleName||'Admin'});
   hideLoading();
   showAdjMsg(`✓ Posted ${hours}${['Vacation day','Personal day','Floating holiday','Bereavement','Jury duty'].includes(type.replace(' (FT only)',''))?'d':'h'} ${type.replace(' (FT only)','')} for ${emp.first} ${emp.last} — accruals updated`,true);
   document.getElementById('adjDate').value='';
@@ -2000,7 +2043,7 @@ async function renderAdjLog() {
     <td>${a.date}</td><td style="color:#28749A;font-weight:600;">${a.hours}h</td>
     <td style="font-size:12px;color:var(--ink3);">${a.period||'—'}</td>
     <td style="font-size:12px;color:var(--ink3);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${a.note}">${a.note||'—'}</td>
-    <td style="font-size:11px;color:var(--ink3);">${a.postedAt?new Date(a.postedAt).toLocaleDateString('en-US',{month:'short',day:'numeric'}):''}</td>
+    <td style="font-size:11px;color:var(--ink3);">${a.postedBy||'Admin'}${a.postedAt?' · '+new Date(a.postedAt).toLocaleDateString('en-US',{month:'short',day:'numeric'}):''}</td>
   </tr>`).join(''):`<tr><td colspan="7"><div class="empty">No adjustments yet.</div></td></tr>`;
 }
 async function exportAdjCSV() {
