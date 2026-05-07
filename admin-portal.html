@@ -681,13 +681,13 @@ textarea { resize: vertical; min-height: 70px; }
 
 <!-- ═══════════ MODAL: EXPORT PREVIEW ═══════════ -->
 <div class="modal-overlay" id="modalExportPreview" style="align-items:flex-start;padding-top:2rem;">
-  <div class="modal" style="max-width:900px;height:85vh;display:flex;flex-direction:column;overflow:hidden;">
+  <div class="modal" style="max-width:900px;width:95vw;height:85vh;min-height:400px;display:flex;flex-direction:column;overflow:hidden;">
     <div class="modal-hdr">
       <h3 id="previewTitle">Preview</h3>
       <button class="modal-close" onclick="closeModal('modalExportPreview')">✕</button>
     </div>
-    <div class="modal-body" style="padding:0;overflow:auto;flex:1;min-height:0;">
-      <div id="previewContent" style="padding:1rem;font-size:12px;"></div>
+    <div class="modal-body" style="padding:0;overflow:auto;flex:1;min-height:0;display:block;">
+      <div id="previewContent" style="padding:1rem;font-size:12px;min-height:100px;"></div>
     </div>
     <div class="modal-foot">
       <span style="font-size:12px;color:var(--ink3);" id="previewCount"></span>
@@ -2206,12 +2206,15 @@ async function previewExport(type){
     document.getElementById('previewTitle').textContent=title;
     document.getElementById('previewCount').textContent=`${rows.length-1} records`;
     const headers=rows[0]||[]; const dataRows=rows.slice(1);
-    document.getElementById('previewContent').innerHTML=`
-      <table style="width:100%;border-collapse:collapse;font-size:12px;">
-        <thead><tr>${headers.map(h=>`<th style="background:#faf9fe;padding:6px 8px;border:1px solid #e5e3f0;white-space:nowrap;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:#9896b0;">${h}</th>`).join('')}</tr></thead>
-        <tbody>${dataRows.slice(0,100).map((r,i)=>`<tr style="background:${i%2===0?'#fff':'#faf9fe'};">${r.map(c=>`<td style="padding:5px 8px;border:1px solid #e5e3f0;white-space:nowrap;">${String(c||'')}</td>`).join('')}</tr>`).join('')}</tbody>
-      </table>
-      ${dataRows.length>100?`<div style="padding:1rem;text-align:center;color:#9896b0;font-size:12px;">Showing first 100 of ${dataRows.length} rows</div>`:''}`;
+    document.getElementById('previewContent').innerHTML=
+      `<div style="overflow-x:auto;width:100%;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:auto;">
+          <thead><tr style="position:sticky;top:0;z-index:2;">${headers.map(h=>`<th style="background:#f0eefb;padding:7px 10px;border:1px solid #e5e3f0;white-space:nowrap;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:#5a4fa0;font-weight:600;">${h}</th>`).join('')}</tr></thead>
+          <tbody>${dataRows.slice(0,100).map((r,i)=>`<tr style="background:${i%2===0?'#fff':'#faf9fe'};">${r.map(c=>`<td style="padding:5px 10px;border:1px solid #e8e6f4;white-space:nowrap;color:#2d2b3d;">${String(c===null||c===undefined?'':c)}</td>`).join('')}</tr>`).join('')}</tbody>
+        </table>
+      </div>
+      ${dataRows.length>100?`<div style="padding:1rem;text-align:center;color:#9896b0;font-size:12px;">Showing first 100 of ${dataRows.length} rows</div>`:''}
+      ${dataRows.length===0?`<div style="padding:2rem;text-align:center;color:#9896b0;">No records found for this period.</div>`:''}`;
     openModal('modalExportPreview');
   }catch(e){hideLoading();toast('Preview failed: '+e.message);}
 }
