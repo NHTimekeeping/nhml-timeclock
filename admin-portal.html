@@ -916,9 +916,9 @@ async function preloadAllData() {
 
 async function loadEmployees() {
   const emps = await cached('employees', () => api('getEmployees').then(r=>r.data||[]));
-  // Normalize: Employees sheet may map 'Employee ID' col to 'id' or 'empId' depending on header.
-  // Always ensure e.id is populated.
-  return emps.map(e => { if (!e.id && e.empId) e.id = e.empId; return e; });
+  return emps
+    .map(e => { if (!e.id && e.empId) e.id = e.empId; return e; })
+    .filter(e => e.id && String(e.id).match(/^[A-Za-z]+\d+$/) && e.last && String(e.last).length < 50);
 }
 async function loadAllPunches() {
   return cached('punches', () => api('getAllPunches').then(r=>r.data||[]));
@@ -1132,14 +1132,9 @@ async function renderStats() {
   const pmap  = {};
   allP.forEach(p=>{const _k=p.empId||p.id;if(!pmap[_k])pmap[_k]=[];pmap[_k].push(p);});
   const today = new Date().toISOString().slice(0,10);
-
-  // DEBUG — log to console so we can diagnose zeros
-  console.log('[Stats] today=', today);
-  console.log('[Stats] total punches=', allP.length);
-  console.log('[Stats] pmap keys=', Object.keys(pmap));
-  console.log('[Stats] emp ids=', emps.map(e=>e.id));
-  if (allP.length > 0) console.log('[Stats] sample punch:', JSON.stringify(allP[0]));
-
+  const _ud=[...new Set(allP.map(p=>cleanDate(p.date)))].sort();
+  const _tp=allP.filter(p=>cleanDate(p.date)===today);
+  console.log("[Stats] today="+today+" | dates in punches="+JSON.stringify(_ud)+" | matching today="+_tp.length);
   let clockedIn=0, lateToday=0, punchCountToday=0;
   emps.forEach(e => {
     const ep = (pmap[e.id]||[]).filter(p=>cleanDate(p.date)===today);
