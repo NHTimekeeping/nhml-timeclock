@@ -912,6 +912,8 @@ async function preloadAllData() {
   _cache['accruals']    = acc;
   Object.keys(_cache).forEach(k => _cacheTime[k] = Date.now());
   console.log(`Cache loaded: ${emps.length} emps, ${punches.length} punches, ${timeoff.length} timeoff, ${adjs.length} adjs`);
+  // Confirm GAS version
+  api('ping').then(r => console.log('[GAS version]', r.version || 'unknown (pre-v17)', '| ts:', r.ts)).catch(()=>{});
 }
 
 async function loadEmployees() {
@@ -1132,9 +1134,6 @@ async function renderStats() {
   const pmap  = {};
   allP.forEach(p=>{const _k=p.empId||p.id;if(!pmap[_k])pmap[_k]=[];pmap[_k].push(p);});
   const today = new Date().toISOString().slice(0,10);
-  const _ud=[...new Set(allP.map(p=>cleanDate(p.date)))].sort();
-  const _tp=allP.filter(p=>cleanDate(p.date)===today);
-  console.log("[Stats] today="+today+" | dates in punches="+JSON.stringify(_ud)+" | matching today="+_tp.length);
   let clockedIn=0, lateToday=0, punchCountToday=0;
   emps.forEach(e => {
     const ep = (pmap[e.id]||[]).filter(p=>cleanDate(p.date)===today);
