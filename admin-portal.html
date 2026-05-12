@@ -460,18 +460,6 @@ textarea { resize: vertical; min-height: 70px; }
       </div>
     </div>
 
-    <!-- Individual accrual editor -->
-    <div class="section-card">
-      <div class="sc-hdr">
-        <h3>Edit Employee Accruals</h3>
-        <select id="accrualEmpSel" onchange="renderAccrualEditor()" style="width:200px;padding:6px 10px;font-size:13px;">
-          <option value="">Select employee…</option>
-        </select>
-      </div>
-      <div class="sc-body" id="accrualEditorBody">
-        <div class="empty">Select an employee to edit their accruals.</div>
-      </div>
-    </div>
   </div>
 
   <!-- ── TIME OFF TAB ── -->
@@ -562,6 +550,8 @@ textarea { resize: vertical; min-height: 70px; }
               <option value="Bereavement">Bereavement (FT only)</option>
               <option value="Jury duty">Jury duty (FT only)</option>
               <option value="Leave without pay">Leave without pay</option>
+              <option value="Regular day">Regular day</option>
+              <option value="Meeting/Conference">Meeting/Conference</option>
               <option value="Other paid">Other paid time</option>
             </select>
           </div>
@@ -2384,7 +2374,6 @@ async function populateEmpSelectors(){
   const emps=await loadEmployees();
   const opts=emps.map(e=>`<option value="${e.id}">${e.last}, ${e.first}</option>`).join('');
   document.getElementById('punchFilterEmp').innerHTML='<option value="ALL">All employees</option>'+opts;
-  document.getElementById('accrualEmpSel').innerHTML='<option value="">Select employee…</option>'+opts;
   document.getElementById('toFilterEmp').innerHTML='<option value="ALL">All employees</option>'+opts;
   document.getElementById('pnwEmpSel').innerHTML='<option value="ALL">All employees</option>'+opts;
   const adjSel=document.getElementById('adjEmpSel');
