@@ -2221,8 +2221,8 @@ async function renderAccruals() {
         ${histHtml}
       </div>
       <div class="accrual-nums" style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;min-width:90px;">
-        <div><strong style="font-size:1.05rem;color:#b84000;">${usedDisplay}</strong><span style="font-size:0.75rem;color:#888880;"> used</span></div>
         ${!isLwop ? `<div><strong style="font-size:1.05rem;color:#34A952;">${availDisplay}</strong><span style="font-size:0.75rem;color:#888880;"> left</span></div>` : ''}
+        <div><strong style="font-size:1.05rem;color:#b84000;">${usedDisplay}</strong><span style="font-size:0.75rem;color:#888880;"> used</span></div>
       </div>
     </div>`;
   }).join('') +
