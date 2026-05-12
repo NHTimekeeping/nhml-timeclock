@@ -951,25 +951,73 @@ function initState(emp) {
 }
 
 function restoreStateFromPunches(empId, punches) {
-  const st  = STATE[empId];
+  const st    = STATE[empId];
   const today = new Date().toISOString().slice(0,10);
-  const ep  = punches.filter(p=>p.date===today);
-  st.log    = ep.map(p=>({...p, rawTime: cleanTime(p.time)}));
-  if (ep.some(p=>p.event==='Meal Break In')) st.mealUsed = true;
-  let workedMs=0, lastIn=null;
-  ep.slice().reverse().forEach(p=>{
+
+  // Normalize all dates from the sheet and keep only today's punches.
+  // Sort chronologically (oldest first) so we can replay the sequence.
+  const ep = punches
+    .filter(p => cleanDate(p.date) === today)
+    .slice()
+    .sort((a, b) => {
+      const ta = cleanDate(a.date)+'T'+cleanTimeRaw(a.time);
+      const tb = cleanDate(b.date)+'T'+cleanTimeRaw(b.time);
+      return ta < tb ? -1 : ta > tb ? 1 : 0;
+    });
+
+  // Build the today log (shown in the Today tab) — newest first for display
+  st.log = ep.slice().reverse().map(p => ({...p, rawTime: cleanTime(p.time)}));
+
+  // Replay the punch sequence to calculate workedMs and final status.
+  // This correctly handles split shifts (multiple in/out pairs in one day).
+  let workedMs = 0;
+  let lastIn   = null;
+  let status   = 'out';
+  let punchInTime   = null;
+  let mealStart     = null;
+  let mealAllowedMins = 60;
+  let mealUsed      = false;
+
+  ep.forEach(p => {
     const t = cleanDate(p.date)+'T'+cleanTimeRaw(p.time);
-    if (p.event==='Punch In'||p.event==='Meal Break In') lastIn=new Date(t);
-    if ((p.event==='Punch Out'||p.event==='Meal Break Out')&&lastIn){ workedMs+=new Date(t)-lastIn; lastIn=null; }
+    const ts = new Date(t);
+
+    if (p.event === 'Punch In') {
+      lastIn     = ts;
+      status     = 'in';
+      punchInTime = ts;
+    } else if (p.event === 'Punch Out') {
+      if (lastIn) { workedMs += ts - lastIn; lastIn = null; }
+      // After punching out, the employee is clocked out but CAN log back in
+      // for a split shift — status 'out' allows the Punch In button.
+      status      = 'out';
+      punchInTime = null;
+    } else if (p.event === 'Meal Break Out') {
+      if (lastIn) { workedMs += ts - lastIn; lastIn = null; }
+      status          = 'meal-out';
+      mealStart       = ts;
+      mealAllowedMins = +p.mealAllowedMins || 60;
+      punchInTime     = null;
+    } else if (p.event === 'Meal Break In') {
+      mealUsed    = true;
+      mealStart   = null;
+      lastIn      = ts;
+      status      = 'in';
+      punchInTime = ts;
+    }
   });
-  st.workedMs = workedMs;
-  const last = ep[ep.length-1];
-  if (last) {
-    const lastT = cleanDate(last.date)+'T'+cleanTimeRaw(last.time);
-    if (last.event==='Punch In') { st.status='in'; st.punchInTime=new Date(lastT); }
-    else if (last.event==='Punch Out') st.status='out';
-    else if (last.event==='Meal Break Out') { st.status='meal-out'; st.mealStart=new Date(lastT); st.mealAllowedMins=+last.mealAllowedMins||60; }
-    else if (last.event==='Meal Break In') { st.status='in'; st.punchInTime=new Date(lastT); }
+
+  st.workedMs       = workedMs;
+  st.status         = status;
+  st.punchInTime    = punchInTime;
+  st.mealStart      = mealStart;
+  st.mealAllowedMins = mealAllowedMins;
+  st.mealUsed       = mealUsed;
+  // Restore mealDueBack if still on break
+  if (status === 'meal-out' && mealStart) {
+    st.mealDueBack = new Date(mealStart.getTime() + mealAllowedMins * 60000);
+  } else {
+    st.mealDueBack = null;
   }
 }
 
@@ -1157,10 +1205,11 @@ async function doLogin() {
 
   showLoading('Signing in…');
   try {
-    if (!EMPLOYEES.length) {
-      const r = await api('getEmployees');
-      EMPLOYEES = (r.data||[]).filter(e=>String(e.status).toLowerCase()==='active' && e.id && e.last);
-    }
+    // Always fetch a fresh employee list on every login — ensures we never
+    // use a stale in-memory cache after a previous employee signed out.
+    const r = await api('getEmployees');
+    EMPLOYEES = (r.data||[]).filter(e=>String(e.status).toLowerCase()==='active' && e.id && e.last);
+
     const emp = EMPLOYEES.find(e=>{
       const lastMatch = String(e.last).toLowerCase().trim() === last.trim();
       const pinMatch  = String(e.pin).trim() === String(pin).trim();
@@ -1177,7 +1226,9 @@ async function doLogin() {
     currentEmpId = emp.id;
     initState(emp);
 
-    // Run all independent data fetches in parallel — cuts login time from ~12s to ~3s
+    // Run all independent data fetches in parallel — cuts login time from ~12s to ~3s.
+    // loadTodayPunches is critical (determines punch buttons shown); the others degrade
+    // gracefully so a secondary fetch failure never blocks login.
     const [punches, timeOffData, accrualData] = await Promise.all([
       loadTodayPunches(emp.id),
       loadTimeOff(emp.id).catch(() => []),
@@ -1586,6 +1637,14 @@ function goToPortal() {
 }
 
 function doLogout() {
+  // Clear the employee's runtime state so the next login always fetches fresh data
+  if (currentEmpId && STATE[currentEmpId]) {
+    delete STATE[currentEmpId];
+  }
+  // Clear employee list so next login re-fetches from the sheet (avoids stale cache)
+  EMPLOYEES = [];
+  // Clear accruals cache
+  _accrualsCache = null;
   currentEmpId = null;
   document.getElementById('inputLastName').value = '';
   document.getElementById('inputPin').value = '';
