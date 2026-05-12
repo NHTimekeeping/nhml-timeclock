@@ -979,8 +979,13 @@ function restoreStateFromPunches(empId, punches) {
       return ta < tb ? -1 : ta > tb ? 1 : 0;
     });
 
-  // Build the today log (shown in the Today tab) — newest first for display
-  st.log = ep.slice().reverse().map(p => ({...p, rawTime: cleanTime(p.time)}));
+  // Build the today log (shown in the Today tab) — newest first for display.
+  // Normalise adjH to a number so renderTodayLog can safely call .toFixed().
+  st.log = ep.slice().reverse().map(p => ({
+    ...p,
+    rawTime: cleanTime(p.time),
+    adjH: parseFloat(p.adjH) || 0,
+  }));
 
   // Replay the punch sequence to calculate workedMs and final status.
   // This correctly handles split shifts (multiple in/out pairs in one day).
@@ -1925,16 +1930,19 @@ function renderTodayLog() {
     <thead><tr><th>Event</th><th>Actual</th><th>Rounded</th><th>Adj</th></tr></thead>
     <tbody>` +
     st.log.map(e => {
-      const isLate = e.isLate && e.event === 'Punch In';
-      const isMealLate = e.isMealLate && e.event === 'Meal Break In';
+      // Values restored from Google Sheets come back as strings — normalise them
+      const truthy = v => v === true || String(v).toLowerCase() === 'true' || String(v).toLowerCase() === 'yes';
+      const adjH = parseFloat(e.adjH) || 0;
+      const isLate = truthy(e.isLate) && e.event === 'Punch In';
+      const isMealLate = truthy(e.isMealLate) && e.event === 'Meal Break In';
       const ec = isLate ? 'punch-late' : isMealLate ? 'punch-late' : (eventClass[e.event] || 'event-out');
       const lateBadge = isLate
         ? `<span class="late-badge">LATE +${e.minsLate}m</span>`
         : isMealLate
           ? `<span class="late-badge">LATE +${e.mealOverMins}m</span>`
           : '';
-      const adj = e.adjH === undefined ? '—' : e.adjH === 0 ? '—'
-        : `<span class="${e.adjH > 0 ? 'adj-pos' : 'adj-neg'}">${e.adjH > 0 ? '+' : ''}${e.adjH.toFixed(1)}h</span>`;
+      const adj = adjH === 0 ? '—'
+        : `<span class="${adjH > 0 ? 'adj-pos' : 'adj-neg'}">${adjH > 0 ? '+' : ''}${adjH.toFixed(1)}h</span>`;
       const durCell = e.durStr || (e.mealAllowedMins ? e.mealAllowedMins + '-min break' : '');
       return `<tr>
         <td class="${ec}">${e.event}${lateBadge}</td>
