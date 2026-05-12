@@ -1655,7 +1655,43 @@ function renderPunchActions() {
     wrap.innerHTML = `${mealBtn}<button class="btn btn-danger" onclick="doPunchOut()">Punch Out</button>`;
   } else if (st.status === 'meal-out') {
     pill.className = 'status-pill pill-lunch'; dot.className = 'pill-dot dot-lunch'; txt.textContent = 'On meal break';
+
+    // Calculate time worked before the meal break started
+    const workedSoFarMs = st.workedMs; // already accumulated before meal-out
+    const workedHours = Math.floor(workedSoFarMs / 3600000);
+    const workedMins  = Math.floor((workedSoFarMs % 3600000) / 60000);
+    const workedStr   = workedHours > 0
+      ? `${workedHours} hr ${workedMins} min`
+      : `${workedMins} min`;
+
+    // Format the meal-out punch time
+    const mealOutTimeStr = st.mealStart ? fmtTime(st.mealStart) : '—';
+
+    // Format due-back time
+    const dueBackStr = st.mealDueBack ? fmtTime(st.mealDueBack) : '—';
+
     wrap.innerHTML = `
+      <div style="
+        background: rgba(240,192,96,0.1);
+        border: 1px solid rgba(240,192,96,0.3);
+        border-radius: 10px;
+        padding: 14px 16px;
+        margin-bottom: 12px;
+        text-align: center;
+        line-height: 1.7;
+      ">
+        <div style="font-size:0.78rem; letter-spacing:0.08em; text-transform:uppercase; color:var(--amber); font-weight:600; margin-bottom:6px;">🍽 On Meal Break</div>
+        <div style="font-size:0.9rem; color: var(--ink2);">
+          Punched out for lunch at <strong style="color:#fff;">${mealOutTimeStr}</strong>
+        </div>
+        <div style="font-size:0.9rem; color: var(--ink2);">
+          Due back by <strong style="color:#fff;">${dueBackStr}</strong>
+        </div>
+        <div style="margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.08); font-size:0.85rem; color: var(--ink3);">
+          Time worked so far today: <strong style="color:var(--accent2);">${workedStr}</strong>
+          <span style="font-size:0.75rem; display:block; color:var(--ink-dim); margin-top:2px;">(not including this break)</span>
+        </div>
+      </div>
       <button class="btn btn-primary" style="margin-bottom:10px;" onclick="doMealIn()">Return from Meal Break</button>
       <button class="btn btn-danger" onclick="doPunchOut()">Punch Out</button>`;
   }
